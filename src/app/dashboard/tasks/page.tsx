@@ -15,6 +15,11 @@ import {
   ListTodo,
   TrendingUp,
   Filter,
+  FileText,
+  Sparkles,
+  Pencil,
+  Trash2,
+  CheckCheck,
 } from "lucide-react";
 import { supabase, priorityLabels, taskStatusLabels } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -86,6 +91,18 @@ const statusIcons: Record<string, React.ReactNode> = {
   overdue: <AlertCircle size={14} />,
 };
 
+// 会议纪要解析出的任务（预览用）
+interface ParsedTask {
+  title: string;
+  description: string | null;
+  assigned_to_name: string | null;
+  assigned_to_id: string | null;
+  priority: string;
+  module: string;
+  module_label: string;
+  due_date: string | null;
+}
+
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -95,6 +112,17 @@ export default function TasksPage() {
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // 导入会议纪要状态
+  const [showImport, setShowImport]       = useState(false);
+  const [minutesText, setMinutesText]     = useState("");
+  const [parsing, setParsing]             = useState(false);
+  const [parseError, setParseError]       = useState<string | null>(null);
+  const [parsedSummary, setParsedSummary] = useState("");
+  // step: "input" → "preview" → done
+  const [importStep, setImportStep]       = useState<"input" | "preview">("input");
+  const [parsedTasks, setParsedTasks]     = useState<ParsedTask[]>([]);
+  const [importing, setImporting]         = useState(false);
 
   const [form, setForm] = useState({
     title: "",
@@ -156,6 +184,79 @@ export default function TasksPage() {
     setSubmitting(false);
   }
 
+  // 解析会议纪要
+  async function handleParse() {
+    if (!minutesText.trim()) return;
+    setParsing(true);
+    setParseError(null);
+    try {
+      const res = await fetch("/api/tasks/parse-minutes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: minutesText, members: profiles }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setParseError(json.error || "解析失败"); return; }
+      if (json.tasks.length === 0) {
+        setParseError("未从纪要中识别到任何任务，请检查内容是否包含明确的行动项");
+        return;
+      }
+      setParsedTasks(json.tasks);
+      setParsedSummary(json.summary || "");
+      setImportStep("preview");
+    } catch {
+      setParseError("网络错误，请重试");
+    } finally {
+      setParsing(false);
+    }
+  }
+
+  // 删除预览中某条任务
+  function removeParsedTask(idx: number) {
+    setParsedTasks(prev => prev.filter((_, i) => i !== idx));
+  }
+
+  // 修改预览中某条任务的字段
+  function updateParsedTask(idx: number, field: keyof ParsedTask, value: string | null) {
+    setParsedTasks(prev => prev.map((t, i) => i === idx ? { ...t, [field]: value } : t));
+  }
+
+  // 确认批量导入
+  async function handleImportConfirm() {
+    if (parsedTasks.length === 0) return;
+    setImporting(true);
+    const rows = parsedTasks.map(t => ({
+      title: t.title,
+      description: t.description || null,
+      module: t.module || "other",
+      assigned_to: t.assigned_to_id || null,
+      priority: t.priority || "medium",
+      status: "pending",
+      due_date: t.due_date || null,
+    }));
+    const { error } = await supabase.from("tasks").insert(rows);
+    if (error) {
+      setParseError("导入失败: " + error.message);
+    } else {
+      setShowImport(false);
+      setMinutesText("");
+      setImportStep("input");
+      setParsedTasks([]);
+      setParsedSummary("");
+      fetchTasks();
+    }
+    setImporting(false);
+  }
+
+  function closeImport() {
+    setShowImport(false);
+    setMinutesText("");
+    setImportStep("input");
+    setParsedTasks([]);
+    setParsedSummary("");
+    setParseError(null);
+  }
+
   async function cycleStatus(task: Task) {
     const next = statusFlow[task.status || "pending"] || "in_progress";
     const { error } = await supabase
@@ -196,13 +297,22 @@ export default function TasksPage() {
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">跟踪和管理全团队的工作任务</p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition shadow-sm"
-        >
-          <Plus size={16} />
-          新建任务
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 bg-white border border-gray-200 hover:border-violet-300 hover:bg-violet-50 text-gray-700 hover:text-violet-700 text-sm font-medium px-4 py-2.5 rounded-xl transition shadow-sm"
+          >
+            <FileText size={15} />
+            导入会议纪要
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition shadow-sm"
+          >
+            <Plus size={16} />
+            新建任务
+          </button>
+        </div>
       </div>
 
       {/* Stats Cards */}
@@ -392,6 +502,232 @@ export default function TasksPage() {
           </>
         )}
       </div>
+
+      {/* ══ 导入会议纪要弹窗 ══ */}
+      {showImport && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+
+            {/* 弹窗头部 */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-violet-100 flex items-center justify-center">
+                  <Sparkles size={15} className="text-violet-600" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900">AI 解析会议纪要</h3>
+                  <p className="text-xs text-gray-400">自动提取任务并分配负责人</p>
+                </div>
+              </div>
+              <button onClick={closeImport}
+                className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition">
+                <X size={14} />
+              </button>
+            </div>
+
+            {/* 步骤指示 */}
+            <div className="flex items-center gap-0 px-6 pt-4 shrink-0">
+              {["粘贴纪要", "确认任务"].map((step, i) => (
+                <div key={step} className="flex items-center">
+                  <div className={cn("flex items-center gap-1.5 text-xs font-medium px-3 py-1 rounded-full",
+                    (i === 0 && importStep === "input") || (i === 1 && importStep === "preview")
+                      ? "bg-violet-600 text-white"
+                      : i === 0 && importStep === "preview"
+                      ? "bg-violet-100 text-violet-600"
+                      : "bg-gray-100 text-gray-400")}>
+                    <span className="w-4 h-4 rounded-full bg-current/20 flex items-center justify-center text-[10px]">{i + 1}</span>
+                    {step}
+                  </div>
+                  {i < 1 && <div className="w-6 h-px bg-gray-200 mx-1" />}
+                </div>
+              ))}
+            </div>
+
+            {/* 内容区 */}
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+
+              {/* Step 1：输入纪要 */}
+              {importStep === "input" && (
+                <div className="space-y-4">
+                  <div className="bg-blue-50 border border-blue-100 rounded-xl px-4 py-3 text-xs text-blue-700">
+                    💡 将会议纪要文字粘贴到下方，AI 会自动识别任务、负责人、截止日期和优先级
+                  </div>
+                  <textarea
+                    value={minutesText}
+                    onChange={e => setMinutesText(e.target.value)}
+                    placeholder={`例：\n2026年4月18日 周五 产品周会纪要\n\n议题一：电商平台优化\n- 陈一负责天猫店铺首页改版，下周五前完成\n- 王二跟进京东活动报名，高优先级，4月20日截止\n\n议题二：达人合作\n- 李三联系抖音头部达人，本周内完成初步洽谈`}
+                    rows={12}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 resize-none placeholder:text-gray-300"
+                  />
+                  {parseError && (
+                    <div className="bg-red-50 border border-red-100 text-red-600 text-xs px-4 py-3 rounded-xl flex items-start gap-2">
+                      <AlertCircle size={14} className="shrink-0 mt-0.5" />
+                      {parseError}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Step 2：预览任务 */}
+              {importStep === "preview" && (
+                <div className="space-y-4">
+                  {/* 会议摘要 */}
+                  {parsedSummary && (
+                    <div className="bg-violet-50 border border-violet-100 rounded-xl px-4 py-3 text-xs text-violet-700">
+                      <span className="font-semibold">会议摘要：</span>{parsedSummary}
+                    </div>
+                  )}
+
+                  <p className="text-xs text-gray-500">
+                    共识别到 <span className="font-semibold text-violet-600">{parsedTasks.length}</span> 个任务，可直接编辑后导入：
+                  </p>
+
+                  {parsedTasks.length === 0 ? (
+                    <div className="text-center py-8 text-gray-400 text-sm">所有任务已删除</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {parsedTasks.map((t, idx) => (
+                        <div key={idx} className="border border-gray-100 rounded-xl p-4 bg-gray-50/50 hover:border-violet-200 transition">
+                          <div className="flex items-start gap-3">
+                            {/* 序号 */}
+                            <span className="w-5 h-5 rounded-full bg-violet-100 text-violet-600 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">
+                              {idx + 1}
+                            </span>
+                            <div className="flex-1 space-y-2 min-w-0">
+                              {/* 标题 */}
+                              <input
+                                value={t.title}
+                                onChange={e => updateParsedTask(idx, "title", e.target.value)}
+                                className="w-full text-sm font-semibold text-gray-800 bg-transparent border-b border-dashed border-gray-300 focus:border-violet-400 outline-none pb-0.5"
+                              />
+                              {/* 说明 */}
+                              {t.description && (
+                                <p className="text-xs text-gray-500">{t.description}</p>
+                              )}
+                              {/* 标签行 */}
+                              <div className="flex flex-wrap gap-2 items-center">
+                                {/* 负责人 */}
+                                <div className="flex items-center gap-1">
+                                  <span className="text-xs text-gray-400">负责人：</span>
+                                  <select
+                                    value={t.assigned_to_id || ""}
+                                    onChange={e => {
+                                      const p = profiles.find(p => p.id === e.target.value);
+                                      updateParsedTask(idx, "assigned_to_id", e.target.value || null);
+                                      updateParsedTask(idx, "assigned_to_name", p?.full_name || null);
+                                    }}
+                                    className="text-xs border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-violet-400 bg-white"
+                                  >
+                                    <option value="">未分配</option>
+                                    {profiles.map(p => (
+                                      <option key={p.id} value={p.id}>{p.full_name || p.email}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                {/* 优先级 */}
+                                <div className="flex items-center gap-1">
+                                  <span className="text-xs text-gray-400">优先级：</span>
+                                  <select
+                                    value={t.priority}
+                                    onChange={e => updateParsedTask(idx, "priority", e.target.value)}
+                                    className="text-xs border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-violet-400 bg-white"
+                                  >
+                                    <option value="high">高</option>
+                                    <option value="medium">中</option>
+                                    <option value="low">低</option>
+                                  </select>
+                                </div>
+                                {/* 模块 */}
+                                <div className="flex items-center gap-1">
+                                  <span className="text-xs text-gray-400">模块：</span>
+                                  <select
+                                    value={t.module}
+                                    onChange={e => updateParsedTask(idx, "module", e.target.value)}
+                                    className="text-xs border border-gray-200 rounded-lg px-2 py-1 outline-none focus:border-violet-400 bg-white"
+                                  >
+                                    {moduleOptions.map(m => (
+                                      <option key={m.value} value={m.value}>{m.label}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                {/* 截止日期 */}
+                                {t.due_date && (
+                                  <span className="flex items-center gap-1 text-xs text-gray-500 bg-white border border-gray-200 px-2 py-1 rounded-lg">
+                                    <Calendar size={11} />
+                                    {t.due_date}
+                                  </span>
+                                )}
+                                {/* 优先级标签 */}
+                                <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium",
+                                  t.priority === "high" ? "bg-red-50 text-red-600" :
+                                  t.priority === "medium" ? "bg-yellow-50 text-yellow-600" :
+                                  "bg-gray-50 text-gray-500")}>
+                                  {t.priority === "high" ? "高优先" : t.priority === "medium" ? "中优先" : "低优先"}
+                                </span>
+                              </div>
+                            </div>
+                            {/* 删除 */}
+                            <button onClick={() => removeParsedTask(idx)}
+                              className="w-6 h-6 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition shrink-0">
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {parseError && (
+                    <div className="bg-red-50 text-red-600 text-xs px-4 py-3 rounded-xl">{parseError}</div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* 底部按钮 */}
+            <div className="px-6 py-4 border-t border-gray-100 shrink-0">
+              {importStep === "input" ? (
+                <div className="flex gap-3">
+                  <button onClick={closeImport}
+                    className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50 transition">
+                    取消
+                  </button>
+                  <button
+                    onClick={handleParse}
+                    disabled={parsing || !minutesText.trim()}
+                    className="flex-1 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium py-2.5 rounded-xl transition flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {parsing ? (
+                      <><Loader2 size={15} className="animate-spin" />AI 解析中...</>
+                    ) : (
+                      <><Sparkles size={15} />开始解析</>
+                    )}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-3">
+                  <button onClick={() => { setImportStep("input"); setParseError(null); }}
+                    className="flex items-center gap-1.5 px-4 py-2.5 border border-gray-200 text-gray-600 text-sm font-medium rounded-xl hover:bg-gray-50 transition">
+                    <Pencil size={14} />
+                    重新编辑
+                  </button>
+                  <button
+                    onClick={handleImportConfirm}
+                    disabled={importing || parsedTasks.length === 0}
+                    className="flex-1 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium py-2.5 rounded-xl transition flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    {importing ? (
+                      <><Loader2 size={15} className="animate-spin" />导入中...</>
+                    ) : (
+                      <><CheckCheck size={15} />确认导入 {parsedTasks.length} 个任务</>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create Task Modal */}
       {showModal && (
