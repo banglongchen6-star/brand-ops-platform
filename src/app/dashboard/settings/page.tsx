@@ -133,6 +133,12 @@ export default function SettingsPage() {
   // ——— Team functions ———
   async function fetchProfiles() {
     setLoading(true);
+    // 先同步 Auth → profiles（补全可能缺失的用户）
+    try {
+      await fetch("/api/admin/sync-users", { method: "POST" });
+    } catch {
+      // 同步失败不影响正常显示
+    }
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
