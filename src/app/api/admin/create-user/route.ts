@@ -1,14 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
 
-// Admin client using service role key — bypasses RLS, server-side only
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 export async function POST(req: Request) {
   try {
     const { email, password, full_name, role, department } = await req.json();
+
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    if (!serviceKey || !supabaseUrl) {
+      return Response.json({ error: "服务器配置错误，请联系管理员" }, { status: 500 });
+    }
+
+    // Admin client using service role key — bypasses RLS, server-side only
+    const supabaseAdmin = createClient(supabaseUrl, serviceKey);
 
     if (!email || !password || !full_name) {
       return Response.json({ error: "邮箱、密码和姓名不能为空" }, { status: 400 });
