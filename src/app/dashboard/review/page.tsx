@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { BrainCircuit, Sparkles, Loader2, TrendingUp, TrendingDown, AlertCircle, CheckCircle2, ArrowRight, FileText, Calendar, Zap } from "lucide-react";
+import { useState, useRef } from "react";
+import { BrainCircuit, Sparkles, Loader2, TrendingUp, TrendingDown, AlertCircle, CheckCircle2, ArrowRight, FileText, Calendar, Zap, Copy, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const reportTypes = [
@@ -17,48 +17,134 @@ const sampleInsights = [
   { type: "suggestion", label: "建议", color: "bg-blue-50 border-blue-100 text-blue-700", dot: "bg-blue-500", text: "本周达人内容发布12条，其中3条播放量超10万，建议复制爆款内容结构，扩大投放规模。" },
 ];
 
-const sampleReport = `## 经营摘要
+// Simple markdown renderer
+function MarkdownText({ text }: { text: string }) {
+  const lines = text.split("\n");
+  return (
+    <div className="space-y-1">
+      {lines.map((line, i) => {
+        if (line.startsWith("### ")) {
+          return <h3 key={i} className="font-bold text-gray-900 mt-3 mb-1 text-sm">{line.slice(4)}</h3>;
+        }
+        if (line.startsWith("## ")) {
+          return <h2 key={i} className="font-bold text-gray-900 mt-4 mb-2 text-base">{line.slice(3)}</h2>;
+        }
+        if (line.startsWith("# ")) {
+          return <h1 key={i} className="font-bold text-gray-900 mt-4 mb-2 text-lg">{line.slice(2)}</h1>;
+        }
+        if (line.startsWith("- ") || line.startsWith("* ")) {
+          const content = line.slice(2);
+          return (
+            <div key={i} className="flex gap-2 text-sm text-gray-700">
+              <span className="text-violet-400 mt-1">•</span>
+              <span dangerouslySetInnerHTML={{ __html: boldify(content) }} />
+            </div>
+          );
+        }
+        if (/^\d+\. /.test(line)) {
+          const match = line.match(/^(\d+)\. (.*)$/);
+          if (match) {
+            return (
+              <div key={i} className="flex gap-2 text-sm text-gray-700">
+                <span className="text-violet-500 font-medium shrink-0">{match[1]}.</span>
+                <span dangerouslySetInnerHTML={{ __html: boldify(match[2]) }} />
+              </div>
+            );
+          }
+        }
+        if (line.trim() === "") return <div key={i} className="h-1" />;
+        return <p key={i} className="text-sm text-gray-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: boldify(line) }} />;
+      })}
+    </div>
+  );
+}
 
-本周（4月10日-4月16日）全渠道总GMV **¥452,900**，环比上周+15.2%，完成周目标的**91.2%**。
+function boldify(text: string) {
+  return text.replace(/\*\*(.+?)\*\*/g, '<strong class="text-gray-900">$1</strong>');
+}
 
-### 各渠道表现
-- **抖音直播**：GMV ¥203,800，+28.7%，为本周最大增量来源
-- **天猫旗舰**：GMV ¥128,400，+12.3%，保持稳定增长
-- **京东自营**：GMV ¥86,200，-3.1%，连续3日下滑，需重点关注
-- **拼多多**：GMV ¥34,600，+5.2%，增速平稳
+async function callAI(params: { prompt?: string; reportType?: string }, onChunk: (text: string) => void): Promise<void> {
+  const res = await fetch("/api/ai/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
 
-### 重点异常
-1. 京东GMV下滑：主要原因可能是竞品「钢琴先生」本周开始大促，建议监控其活动节奏
-2. 达人发布ROI：本周平均ROI 3.2，低于上周4.1，样品费用占比偏高
+  if (!res.ok) {
+    throw new Error("请求失败，请检查 API Key 配置");
+  }
 
-### 下周建议
-1. 针对京东下滑，申请平台活动资源，同时检查搜索关键词排名
-2. 筛选高ROI达人进行复投，停止与ROI<2的达人合作
-3. 抖音直播场次从每周3场增加到5场，把握增长势头`;
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("无法读取响应流");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n\n");
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      if (line.startsWith("data: ")) {
+        const data = line.slice(6);
+        if (data === "[DONE]") return;
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.text) onChunk(parsed.text);
+          if (parsed.error) throw new Error(parsed.error);
+        } catch {}
+      }
+    }
+  }
+}
 
 export default function ReviewPage() {
   const [activeType, setActiveType] = useState("weekly");
   const [generating, setGenerating] = useState(false);
-  const [generated, setGenerated] = useState(false);
+  const [reportText, setReportText] = useState("");
   const [customPrompt, setCustomPrompt] = useState("");
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
 
   const handleGenerate = async () => {
     setGenerating(true);
-    setGenerated(false);
-    await new Promise(r => setTimeout(r, 2500));
-    setGenerating(false);
-    setGenerated(true);
+    setReportText("");
+    setError("");
+    try {
+      await callAI({ reportType: activeType }, (chunk) => {
+        setReportText(prev => prev + chunk);
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "生成失败");
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const handleAnalyze = async () => {
     if (!customPrompt.trim()) return;
     setAnalyzing(true);
     setAnalysisResult("");
-    await new Promise(r => setTimeout(r, 2000));
-    setAnalysisResult(`根据您的问题「${customPrompt}」，结合近期经营数据分析：\n\n本周抖音直播共进行3场，场均GMV约¥67,933，较上周提升23%。主播转化率平均为4.2%，高于行业均值3.1%。\n\n**主要优化点：**\n1. 开播时间建议从20:00提前至19:30，避开竞品黄金时段\n2. 商品池中音乐密码2代占比可从60%提升至75%，客单价更高\n3. 互动话术建议增加「限时赠品」钩子，提升停留时长`);
-    setAnalyzing(false);
+    setError("");
+    try {
+      await callAI({ prompt: customPrompt }, (chunk) => {
+        setAnalysisResult(prev => prev + chunk);
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "分析失败");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const handleCopy = async (text: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -74,6 +160,14 @@ export default function ReviewPage() {
         </div>
       </div>
 
+      {/* 错误提示 */}
+      {error && (
+        <div className="flex items-center gap-2 bg-red-50 border border-red-100 text-red-600 text-sm px-4 py-3 rounded-xl">
+          <AlertCircle size={14} />
+          {error}
+        </div>
+      )}
+
       {/* AI 自定义分析 */}
       <div className="bg-gradient-to-r from-violet-600 to-indigo-600 rounded-2xl p-5 text-white">
         <div className="flex items-center gap-2 mb-3">
@@ -84,7 +178,7 @@ export default function ReviewPage() {
           <input
             value={customPrompt}
             onChange={e => setCustomPrompt(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleAnalyze()}
+            onKeyDown={e => e.key === "Enter" && !analyzing && handleAnalyze()}
             placeholder="问任何经营问题，例如：本周抖音直播数据怎么样？达人合作ROI如何？"
             className="flex-1 bg-white/20 border border-white/30 rounded-xl px-4 py-2.5 text-sm placeholder:text-white/60 outline-none focus:bg-white/25"
           />
@@ -95,7 +189,7 @@ export default function ReviewPage() {
           </button>
         </div>
         <div className="flex gap-2 mt-3 flex-wrap">
-          {["本周销售总结", "达人ROI分析", "竞品动态", "库存预警", "利润分析", "下周建议"].map(tag => (
+          {["本周销售总结", "达人ROI分析", "竞品动态分析", "库存预警建议", "利润结构分析", "下周行动计划"].map(tag => (
             <button key={tag} onClick={() => setCustomPrompt(tag)}
               className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-full transition">
               {tag}
@@ -107,19 +201,28 @@ export default function ReviewPage() {
       {/* AI 分析结果 */}
       {(analyzing || analysisResult) && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <BrainCircuit size={16} className="text-violet-500" />
-            <span className="font-semibold text-gray-900">AI 分析结果</span>
-            {analyzing && <Loader2 size={14} className="animate-spin text-violet-400 ml-1" />}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <BrainCircuit size={16} className="text-violet-500" />
+              <span className="font-semibold text-gray-900">AI 分析结果</span>
+              {analyzing && <Loader2 size={14} className="animate-spin text-violet-400 ml-1" />}
+            </div>
+            {analysisResult && !analyzing && (
+              <button onClick={() => handleCopy(analysisResult)}
+                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-600 transition">
+                {copied ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                {copied ? "已复制" : "复制"}
+              </button>
+            )}
           </div>
-          {analyzing ? (
+          {analyzing && !analysisResult ? (
             <div className="space-y-2">
               {[80, 60, 90, 45].map((w, i) => (
-                <div key={i} className={`h-3 bg-violet-100 rounded-full animate-pulse`} style={{ width: `${w}%` }} />
+                <div key={i} className="h-3 bg-violet-100 rounded-full animate-pulse" style={{ width: `${w}%` }} />
               ))}
             </div>
           ) : (
-            <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{analysisResult}</div>
+            <MarkdownText text={analysisResult} />
           )}
         </div>
       )}
@@ -133,7 +236,7 @@ export default function ReviewPage() {
           </div>
           <div className="flex gap-2">
             {reportTypes.map(t => (
-              <button key={t.key} onClick={() => { setActiveType(t.key); setGenerated(false); }}
+              <button key={t.key} onClick={() => { setActiveType(t.key); setReportText(""); }}
                 className={cn("px-3 py-1.5 rounded-lg text-sm font-medium transition",
                   activeType === t.key ? "bg-violet-600 text-white" : "text-gray-500 hover:bg-gray-100")}>
                 {t.label}
@@ -142,7 +245,7 @@ export default function ReviewPage() {
           </div>
         </div>
 
-        {!generated ? (
+        {!reportText && !generating ? (
           <div className="text-center py-10">
             <div className="w-16 h-16 bg-violet-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <BrainCircuit size={28} className="text-violet-400" />
@@ -150,27 +253,44 @@ export default function ReviewPage() {
             <p className="text-gray-500 text-sm mb-2">
               点击生成本{activeType === "daily" ? "日" : activeType === "weekly" ? "周" : "月"}经营报告
             </p>
-            <p className="text-gray-400 text-xs mb-5">AI 将汇总所有模块数据，自动分析并给出建议</p>
-            <button onClick={handleGenerate} disabled={generating}
-              className="bg-violet-600 hover:bg-violet-700 text-white px-6 py-2.5 rounded-xl text-sm font-medium transition flex items-center gap-2 mx-auto disabled:opacity-60">
-              {generating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-              {generating ? "AI 生成中..." : `生成${activeType === "daily" ? "日" : activeType === "weekly" ? "周" : "月"}报`}
+            <p className="text-gray-400 text-xs mb-5">AI 将结合音乐密码产品特点和电商运营规律，自动分析并给出建议</p>
+            <button onClick={handleGenerate}
+              className="bg-violet-600 hover:bg-violet-700 text-white px-6 py-2.5 rounded-xl text-sm font-medium transition flex items-center gap-2 mx-auto">
+              <Sparkles size={14} />
+              生成{activeType === "daily" ? "日" : activeType === "weekly" ? "周" : "月"}报
             </button>
           </div>
         ) : (
           <div>
-            <div className="prose prose-sm max-w-none text-gray-700 leading-relaxed whitespace-pre-line bg-gray-50 rounded-xl p-4 text-sm">
-              {sampleReport}
+            <div className="bg-gray-50 rounded-xl p-5 min-h-[120px]">
+              {generating && !reportText && (
+                <div className="space-y-2">
+                  {[75, 55, 85, 40, 65].map((w, i) => (
+                    <div key={i} className="h-3 bg-violet-100 rounded-full animate-pulse" style={{ width: `${w}%` }} />
+                  ))}
+                </div>
+              )}
+              <MarkdownText text={reportText} />
+              {generating && (
+                <span className="inline-block w-1 h-4 bg-violet-400 animate-pulse ml-0.5 align-middle" />
+              )}
             </div>
-            <div className="flex gap-3 mt-4">
-              <button onClick={() => setGenerated(false)}
-                className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 border border-gray-200 px-4 py-2 rounded-xl transition">
-                重新生成
-              </button>
-              <button className="flex items-center gap-1.5 text-sm bg-violet-600 text-white px-4 py-2 rounded-xl hover:bg-violet-700 transition">
-                <CheckCircle2 size={14} /> 归档保存
-              </button>
-            </div>
+            {!generating && reportText && (
+              <div className="flex gap-3 mt-4">
+                <button onClick={() => handleCopy(reportText)}
+                  className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 border border-gray-200 px-4 py-2 rounded-xl transition">
+                  {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                  {copied ? "已复制" : "复制报告"}
+                </button>
+                <button onClick={() => { setReportText(""); }}
+                  className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 border border-gray-200 px-4 py-2 rounded-xl transition">
+                  重新生成
+                </button>
+                <button className="flex items-center gap-1.5 text-sm bg-violet-600 text-white px-4 py-2 rounded-xl hover:bg-violet-700 transition">
+                  <CheckCircle2 size={14} /> 归档保存
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
