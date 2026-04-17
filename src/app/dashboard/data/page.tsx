@@ -12,24 +12,20 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import {
-  TrendingUp,
-  Users,
-  FileVideo,
-  GitBranch,
-  Download,
   Upload,
   RefreshCw,
   ChevronDown,
   AlertCircle,
   CheckCircle2,
   Loader2,
+  TrendingUp,
   ShoppingCart,
   Megaphone,
   BarChart3,
+  Users,
+  FileVideo,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-type Tab = "sales" | "kol" | "content" | "channel";
 
 const PLATFORM_COLORS: Record<string, string> = {
   天猫: "#f97316",
@@ -41,19 +37,22 @@ const PLATFORM_COLORS: Record<string, string> = {
   其他: "#94a3b8",
 };
 
-const TABS: { key: Tab; label: string; icon: React.ReactNode }[] = [
-  { key: "sales", label: "销售看板", icon: <TrendingUp size={15} /> },
-  { key: "kol", label: "达人营销", icon: <Users size={15} /> },
-  { key: "content", label: "内容运营", icon: <FileVideo size={15} /> },
-  { key: "channel", label: "渠道分销", icon: <GitBranch size={15} /> },
-];
+const PLATFORM_BG: Record<string, string> = {
+  天猫: "bg-orange-50 text-orange-700",
+  京东: "bg-red-50 text-red-700",
+  抖音: "bg-pink-50 text-pink-700",
+  小红书: "bg-rose-50 text-rose-700",
+  视频号: "bg-green-50 text-green-700",
+  渠道分销: "bg-violet-50 text-violet-700",
+  其他: "bg-gray-50 text-gray-500",
+};
 
 function formatMoney(n: number) {
   if (n >= 10000000) return `${(n / 10000000).toFixed(2)}千万`;
   if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
+  if (n === 0) return "0";
   return n.toLocaleString();
 }
-
 function formatNum(n: number) {
   if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
   return n.toLocaleString();
@@ -69,7 +68,6 @@ interface KPIs {
   contentCount: number;
   totalViews: number;
 }
-
 interface PlatformData {
   platform: string;
   color: string;
@@ -77,7 +75,6 @@ interface PlatformData {
   orders: number;
   adSpend: number;
 }
-
 interface KolRow {
   id: string;
   name: string;
@@ -86,17 +83,14 @@ interface KolRow {
   status: string;
   fee: number;
 }
-
 interface KolCoop {
   id: string;
-  kol_id: string;
   fee: number;
   roi: number;
   actual_views: number;
   status: string;
   start_date: string;
 }
-
 interface ContentRow {
   id: string;
   title: string;
@@ -107,7 +101,6 @@ interface ContentRow {
   likes: number;
   comments: number;
 }
-
 interface DataResponse {
   kpis: KPIs;
   byPlatform: PlatformData[];
@@ -129,7 +122,6 @@ const MONTHS = [
 ];
 
 export default function DataPage() {
-  const [activeTab, setActiveTab] = useState<Tab>("sales");
   const [year, setYear] = useState(CURRENT_YEAR);
   const [month, setMonth] = useState("");
   const [data, setData] = useState<DataResponse | null>(null);
@@ -144,10 +136,7 @@ export default function DataPage() {
       const params = new URLSearchParams({ year: String(year) });
       if (month) params.set("month", month);
       const res = await fetch(`/api/data/sales?${params}`);
-      if (res.ok) {
-        const json = await res.json();
-        setData(json);
-      }
+      if (res.ok) setData(await res.json());
     } catch (e) {
       console.error(e);
     } finally {
@@ -155,9 +144,7 @@ export default function DataPage() {
     }
   }, [year, month]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -190,787 +177,517 @@ export default function DataPage() {
   const kolCoops = data?.kolCoops || [];
   const content = data?.content || [];
   const hasData = data?.hasData || false;
-
-  // Active platforms for chart lines
   const activePlatforms = byPlatform.map((p) => p.platform);
+  const totalGMV = byPlatform.reduce((s, p) => s + p.gmv, 0);
+  const totalOrders = byPlatform.reduce((s, p) => s + p.orders, 0);
+  const totalAdSpend = byPlatform.reduce((s, p) => s + p.adSpend, 0);
+
+  // Content platform counts
+  const contentByPlatform = content.reduce((acc, c) => {
+    acc[c.platform] = (acc[c.platform] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
 
   return (
-    <div className="p-6 min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+    <div className="p-6 min-h-screen bg-gray-50 space-y-5">
+
+      {/* ── 顶部标题栏 ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <BarChart3 size={24} className="text-violet-600" />
+          <h1 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+            <BarChart3 size={20} className="text-violet-600" />
             数据中心
           </h1>
-          <p className="text-sm text-gray-500 mt-1">统一汇总销售、达人、内容、渠道数据</p>
+          <p className="text-xs text-gray-400 mt-0.5">经营数据全览 · 实时同步</p>
         </div>
-
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Year selector */}
           <div className="relative">
-            <select
-              value={year}
-              onChange={(e) => setYear(parseInt(e.target.value))}
-              className="appearance-none bg-white border border-gray-200 rounded-lg px-3 py-2 pr-8 text-sm text-gray-700 cursor-pointer focus:outline-none focus:border-violet-400"
-            >
-              {YEARS.map((y) => (
-                <option key={y} value={y}>{y}年</option>
-              ))}
+            <select value={year} onChange={(e) => setYear(parseInt(e.target.value))}
+              className="appearance-none bg-white border border-gray-200 rounded-lg px-3 py-2 pr-7 text-sm text-gray-700 cursor-pointer focus:outline-none focus:border-violet-400">
+              {YEARS.map((y) => <option key={y} value={y}>{y}年</option>)}
             </select>
-            <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <ChevronDown size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
           </div>
-
-          {/* Month selector */}
           <div className="relative">
-            <select
-              value={month}
-              onChange={(e) => setMonth(e.target.value)}
-              className="appearance-none bg-white border border-gray-200 rounded-lg px-3 py-2 pr-8 text-sm text-gray-700 cursor-pointer focus:outline-none focus:border-violet-400"
-            >
-              {MONTHS.map((m) => (
-                <option key={m.value} value={m.value}>{m.label}</option>
-              ))}
+            <select value={month} onChange={(e) => setMonth(e.target.value)}
+              className="appearance-none bg-white border border-gray-200 rounded-lg px-3 py-2 pr-7 text-sm text-gray-700 cursor-pointer focus:outline-none focus:border-violet-400">
+              {MONTHS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
             </select>
-            <ChevronDown size={14} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <ChevronDown size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
           </div>
-
-          {/* Refresh */}
-          <button
-            onClick={fetchData}
-            disabled={loading}
-            className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition disabled:opacity-50"
-          >
-            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-            刷新
+          <button onClick={fetchData} disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition disabled:opacity-50">
+            <RefreshCw size={13} className={loading ? "animate-spin" : ""} />刷新
           </button>
-
-          {/* Import Excel */}
           <label className="flex items-center gap-1.5 px-3 py-2 bg-violet-600 text-white rounded-lg text-sm cursor-pointer hover:bg-violet-700 transition">
-            {importing ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Upload size={14} />
-            )}
+            {importing ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
             导入Excel
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
-              onChange={handleImport}
-              disabled={importing}
-            />
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+              onChange={handleImport} disabled={importing} />
           </label>
         </div>
       </div>
 
-      {/* Import result toast */}
+      {/* 导入结果提示 */}
       {importResult && (
-        <div
-          className={cn(
-            "flex items-center gap-2 px-4 py-3 rounded-xl mb-4 text-sm",
-            importResult.ok
-              ? "bg-green-50 text-green-700 border border-green-200"
-              : "bg-red-50 text-red-700 border border-red-200"
-          )}
-        >
-          {importResult.ok ? (
-            <CheckCircle2 size={16} />
-          ) : (
-            <AlertCircle size={16} />
-          )}
+        <div className={cn("flex items-center gap-2 px-4 py-3 rounded-xl text-sm",
+          importResult.ok ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-700 border border-red-200")}>
+          {importResult.ok ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
           {importResult.msg}
-          <button
-            onClick={() => setImportResult(null)}
-            className="ml-auto text-current opacity-60 hover:opacity-100"
-          >
-            ✕
-          </button>
+          <button onClick={() => setImportResult(null)} className="ml-auto opacity-60 hover:opacity-100">✕</button>
         </div>
       )}
 
-      {/* No data banner */}
+      {/* 暂无数据提示 */}
       {!loading && !hasData && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6 flex items-start gap-3">
-          <AlertCircle size={16} className="text-amber-500 mt-0.5 shrink-0" />
-          <div className="text-sm text-amber-700">
-            <span className="font-medium">暂无数据</span> — 当前筛选条件下没有销售数据。
-            点击右上角「导入Excel」上传历史数据（支持.xlsx/.xls格式）。
-          </div>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3">
+          <AlertCircle size={15} className="text-amber-500 mt-0.5 shrink-0" />
+          <p className="text-sm text-amber-700">
+            当前时间范围暂无销售数据，点击右上角「导入Excel」上传历史数据（.xlsx/.xls 格式）。
+          </p>
         </div>
       )}
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-        <KpiCard
-          label="总销售额"
-          value={kpis ? `¥${formatMoney(kpis.totalGMV)}` : "—"}
-          sub={kpis && kpis.totalGMV > 0 ? "元" : "暂无数据"}
-          color="violet"
-          icon={<TrendingUp size={18} />}
-          loading={loading}
-        />
-        <KpiCard
-          label="总订单数"
-          value={kpis ? formatNum(kpis.totalOrders) : "—"}
-          sub="单"
-          color="blue"
-          icon={<ShoppingCart size={18} />}
-          loading={loading}
-        />
-        <KpiCard
-          label="总推广费"
-          value={kpis ? `¥${formatMoney(kpis.totalAdSpend)}` : "—"}
-          sub="元"
-          color="pink"
-          icon={<Megaphone size={18} />}
-          loading={loading}
-        />
-        <KpiCard
-          label="综合ROI"
-          value={kpis ? (kpis.roi > 0 ? `${kpis.roi}x` : "—") : "—"}
-          sub={kpis && kpis.roi > 0 ? "销售额/推广费" : "暂无数据"}
-          color="green"
-          icon={<BarChart3 size={18} />}
-          loading={loading}
-        />
-      </div>
-
-      {/* Tabs */}
-      <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <div className="flex border-b border-gray-100 overflow-x-auto">
-          {TABS.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={cn(
-                "flex items-center gap-2 px-6 py-3.5 text-sm font-medium transition-colors border-b-2 whitespace-nowrap",
-                activeTab === tab.key
-                  ? "border-violet-600 text-violet-600 bg-violet-50/50"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50"
-              )}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
+      {/* ══════════════════════════════════
+          第一区块：核心指标汇总
+      ══════════════════════════════════ */}
+      <Section title="核心指标" subtitle={`${year}年${month ? month + "月" : "全年"} 汇总`}>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <KpiCard label="总销售额（GMV）" value={loading ? null : `¥${formatMoney(totalGMV)}`}
+            sub="元" color="violet" icon={<TrendingUp size={16} />} />
+          <KpiCard label="总订单数" value={loading ? null : formatNum(totalOrders)}
+            sub="单" color="blue" icon={<ShoppingCart size={16} />} />
+          <KpiCard label="总推广费" value={loading ? null : `¥${formatMoney(totalAdSpend)}`}
+            sub="元" color="pink" icon={<Megaphone size={16} />} />
+          <KpiCard label="综合 ROI"
+            value={loading ? null : (kpis && kpis.roi > 0 ? `${kpis.roi}x` : "—")}
+            sub="销售额 ÷ 推广费" color="green" icon={<BarChart3 size={16} />} />
         </div>
+      </Section>
 
-        <div className="p-6">
-          {activeTab === "sales" && (
-            <SalesTab
-              loading={loading}
-              chartData={chartData}
-              byPlatform={byPlatform}
-              activePlatforms={activePlatforms}
-              isMonthView={!!month}
-            />
-          )}
-          {activeTab === "kol" && (
-            <KolTab
-              loading={loading}
-              kols={kols}
-              kolCoops={kolCoops}
-              kpis={kpis}
-            />
-          )}
-          {activeTab === "content" && (
-            <ContentTab
-              loading={loading}
-              content={content}
-              kpis={kpis}
-            />
-          )}
-          {activeTab === "channel" && (
-            <ChannelTab
-              loading={loading}
-              byPlatform={byPlatform}
-            />
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---- KPI Card ----
-
-function KpiCard({
-  label,
-  value,
-  sub,
-  color,
-  icon,
-  loading,
-}: {
-  label: string;
-  value: string;
-  sub: string;
-  color: "violet" | "blue" | "pink" | "green";
-  icon: React.ReactNode;
-  loading: boolean;
-}) {
-  const colorMap = {
-    violet: { bg: "bg-violet-50", text: "text-violet-700", icon: "text-violet-500", sub: "text-violet-400" },
-    blue: { bg: "bg-blue-50", text: "text-blue-700", icon: "text-blue-500", sub: "text-blue-400" },
-    pink: { bg: "bg-pink-50", text: "text-pink-700", icon: "text-pink-500", sub: "text-pink-400" },
-    green: { bg: "bg-green-50", text: "text-green-700", icon: "text-green-500", sub: "text-green-400" },
-  };
-  const c = colorMap[color];
-  return (
-    <div className={cn("rounded-xl p-4", c.bg)}>
-      <div className="flex items-center justify-between mb-2">
-        <p className={cn("text-xs font-medium", c.sub)}>{label}</p>
-        <span className={cn(c.icon)}>{icon}</span>
-      </div>
-      {loading ? (
-        <div className="h-8 w-20 bg-current opacity-10 rounded animate-pulse" />
-      ) : (
-        <p className={cn("text-2xl font-bold", c.text)}>{value}</p>
-      )}
-      <p className={cn("text-xs mt-1", c.sub)}>{sub}</p>
-    </div>
-  );
-}
-
-// ---- Sales Tab ----
-
-function SalesTab({
-  loading,
-  chartData,
-  byPlatform,
-  activePlatforms,
-  isMonthView,
-}: {
-  loading: boolean;
-  chartData: Record<string, string | number>[];
-  byPlatform: PlatformData[];
-  activePlatforms: string[];
-  isMonthView: boolean;
-}) {
-  const totalGMV = byPlatform.reduce((s, p) => s + p.gmv, 0);
-  const totalOrders = byPlatform.reduce((s, p) => s + p.orders, 0);
-
-  return (
-    <div className="space-y-6">
-      {/* Line Chart */}
-      <div className="bg-white rounded-xl border border-gray-100 p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-1">
-          各平台销售额趋势（元）
-        </h3>
-        <p className="text-xs text-gray-400 mb-4">
-          {isMonthView ? "按日查看" : "按月查看"}
-        </p>
+      {/* ══════════════════════════════════
+          第二区块：各平台销售额趋势（折线图）
+      ══════════════════════════════════ */}
+      <Section title="各平台销售额趋势" subtitle={`折线图 · ${month ? "按日" : "按月"}查看 · 单位：元`}>
         {loading ? (
-          <div className="h-56 bg-gray-50 rounded-lg animate-pulse" />
+          <div className="h-60 bg-gray-50 rounded-xl animate-pulse" />
         ) : chartData.length === 0 ? (
-          <div className="h-56 flex items-center justify-center text-sm text-gray-400">
-            暂无数据，请导入Excel或添加记录
-          </div>
+          <EmptyHint text="暂无数据，请导入 Excel 文件" />
         ) : (
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+          <ResponsiveContainer width="100%" height={240}>
+            <LineChart data={chartData} margin={{ top: 8, right: 16, left: 8, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 11, fill: "#94a3b8" }}
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis
-                tick={{ fontSize: 11, fill: "#94a3b8" }}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(v) => formatMoney(v)}
-                width={55}
-              />
+              <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#94a3b8" }} tickLine={false} axisLine={false} />
+              <YAxis tick={{ fontSize: 11, fill: "#94a3b8" }} tickLine={false} axisLine={false}
+                tickFormatter={(v) => formatMoney(v)} width={52} />
               <Tooltip
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 formatter={(value: any) => [`¥${formatMoney(Number(value))}`]}
                 labelStyle={{ fontSize: 12, color: "#374151" }}
-                contentStyle={{
-                  border: "1px solid #e5e7eb",
-                  borderRadius: "8px",
-                  fontSize: 12,
-                }}
-              />
-              <Legend
-                wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
-                iconType="circle"
-                iconSize={8}
-              />
+                contentStyle={{ border: "1px solid #e5e7eb", borderRadius: 8, fontSize: 12 }} />
+              <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} iconType="circle" iconSize={8} />
               {activePlatforms.map((plat) => (
-                <Line
-                  key={plat}
-                  type="monotone"
-                  dataKey={plat}
-                  stroke={PLATFORM_COLORS[plat] || "#94a3b8"}
-                  strokeWidth={2}
-                  dot={false}
-                  activeDot={{ r: 4 }}
-                />
+                <Line key={plat} type="monotone" dataKey={plat}
+                  stroke={PLATFORM_COLORS[plat] || "#94a3b8"} strokeWidth={2}
+                  dot={false} activeDot={{ r: 4 }} />
               ))}
             </LineChart>
           </ResponsiveContainer>
         )}
-      </div>
+      </Section>
 
-      {/* Platform breakdown */}
-      <div className="bg-white rounded-xl border border-gray-100 p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-4">各平台汇总</h3>
+      {/* ══════════════════════════════════
+          第三区块：各平台销售明细表
+      ══════════════════════════════════ */}
+      <Section title="各平台销售明细" subtitle="销售额 / 订单数 / 推广费 / 占比">
         {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-10 bg-gray-50 rounded-lg animate-pulse" />
-            ))}
-          </div>
+          <SkeletonTable rows={5} />
         ) : byPlatform.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-6">暂无数据</p>
+          <EmptyHint text="暂无数据" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left">
-                  <th className="pb-2 text-xs text-gray-400 font-medium pr-4">平台</th>
-                  <th className="pb-2 text-xs text-gray-400 font-medium text-right pr-4">销售额</th>
-                  <th className="pb-2 text-xs text-gray-400 font-medium text-right pr-4">订单数</th>
-                  <th className="pb-2 text-xs text-gray-400 font-medium text-right pr-4">推广费</th>
-                  <th className="pb-2 text-xs text-gray-400 font-medium text-right">占比</th>
+                <tr className="bg-gray-50 text-xs text-gray-500">
+                  <Th align="left">平台</Th>
+                  <Th>销售额（元）</Th>
+                  <Th>订单数（单）</Th>
+                  <Th>推广费（元）</Th>
+                  <Th>ROI</Th>
+                  <Th>GMV 占比</Th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {byPlatform.map((p) => (
-                  <tr key={p.platform}>
-                    <td className="py-2.5 pr-4">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="w-2.5 h-2.5 rounded-full shrink-0"
-                          style={{ backgroundColor: p.color }}
-                        />
-                        <span className="font-medium text-gray-700">{p.platform}</span>
-                      </div>
-                    </td>
-                    <td className="py-2.5 text-right pr-4 text-gray-700 font-medium">
-                      ¥{formatMoney(p.gmv)}
-                    </td>
-                    <td className="py-2.5 text-right pr-4 text-gray-500">
-                      {formatNum(p.orders)}
-                    </td>
-                    <td className="py-2.5 text-right pr-4 text-gray-500">
-                      {p.adSpend > 0 ? `¥${formatMoney(p.adSpend)}` : "—"}
-                    </td>
-                    <td className="py-2.5 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full rounded-full"
-                            style={{
-                              width: `${totalGMV > 0 ? (p.gmv / totalGMV) * 100 : 0}%`,
-                              backgroundColor: p.color,
-                            }}
-                          />
+                {byPlatform.map((p) => {
+                  const pct = totalGMV > 0 ? (p.gmv / totalGMV) * 100 : 0;
+                  const pRoi = p.adSpend > 0 ? p.gmv / p.adSpend : 0;
+                  return (
+                    <tr key={p.platform} className="hover:bg-gray-50/60 transition-colors">
+                      <td className="py-3 pl-4">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full shrink-0"
+                            style={{ backgroundColor: p.color }} />
+                          <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full",
+                            PLATFORM_BG[p.platform] || "bg-gray-50 text-gray-500")}>
+                            {p.platform}
+                          </span>
                         </div>
-                        <span className="text-xs text-gray-400 w-9 text-right">
-                          {totalGMV > 0 ? `${((p.gmv / totalGMV) * 100).toFixed(1)}%` : "0%"}
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {/* Total row */}
-                <tr className="font-semibold">
-                  <td className="pt-3 pb-1 text-gray-800">合计</td>
-                  <td className="pt-3 pb-1 text-right text-violet-700">
-                    ¥{formatMoney(totalGMV)}
-                  </td>
-                  <td className="pt-3 pb-1 text-right text-gray-600">
-                    {formatNum(totalOrders)}
-                  </td>
-                  <td className="pt-3 pb-1 text-right text-gray-500">
-                    ¥{formatMoney(byPlatform.reduce((s, p) => s + p.adSpend, 0))}
-                  </td>
-                  <td />
-                </tr>
+                      </td>
+                      <Td bold>¥{formatMoney(p.gmv)}</Td>
+                      <Td>{p.orders > 0 ? formatNum(p.orders) : "—"}</Td>
+                      <Td>{p.adSpend > 0 ? `¥${formatMoney(p.adSpend)}` : "—"}</Td>
+                      <Td>{pRoi > 0 ? `${pRoi.toFixed(2)}x` : "—"}</Td>
+                      <td className="py-3 pr-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <div className="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: p.color }} />
+                          </div>
+                          <span className="text-xs text-gray-500 w-10 text-right">
+                            {pct.toFixed(1)}%
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
+              {/* 合计行 */}
+              <tfoot>
+                <tr className="bg-violet-50 font-semibold text-sm border-t border-violet-100">
+                  <td className="py-3 pl-4 text-violet-700">合计</td>
+                  <Td bold className="text-violet-700">¥{formatMoney(totalGMV)}</Td>
+                  <Td className="text-violet-700">{formatNum(totalOrders)}</Td>
+                  <Td className="text-violet-700">¥{formatMoney(totalAdSpend)}</Td>
+                  <Td className="text-violet-700">
+                    {totalAdSpend > 0 ? `${(totalGMV / totalAdSpend).toFixed(2)}x` : "—"}
+                  </Td>
+                  <Td>100%</Td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}
-      </div>
+      </Section>
+
+      {/* ══════════════════════════════════
+          第四区块：推广费用明细
+      ══════════════════════════════════ */}
+      <Section title="推广费用分析" subtitle="各渠道推广投入">
+        {loading ? (
+          <SkeletonTable rows={4} />
+        ) : byPlatform.filter(p => p.adSpend > 0).length === 0 ? (
+          <EmptyHint text="暂无推广费数据（导入 Excel 时包含「推广费」列即可）" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 text-xs text-gray-500">
+                  <Th align="left">推广渠道</Th>
+                  <Th>推广费（元）</Th>
+                  <Th>带来 GMV（元）</Th>
+                  <Th>ROI</Th>
+                  <Th>费用占比</Th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {byPlatform.filter(p => p.adSpend > 0).map((p) => {
+                  const pct = totalAdSpend > 0 ? (p.adSpend / totalAdSpend) * 100 : 0;
+                  const pRoi = p.adSpend > 0 ? p.gmv / p.adSpend : 0;
+                  return (
+                    <tr key={p.platform} className="hover:bg-gray-50/60 transition-colors">
+                      <td className="py-3 pl-4">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: p.color }} />
+                          <span className="text-gray-700 font-medium">{p.platform}</span>
+                        </div>
+                      </td>
+                      <Td bold>¥{formatMoney(p.adSpend)}</Td>
+                      <Td>¥{formatMoney(p.gmv)}</Td>
+                      <td className="py-3 text-right pr-4">
+                        <span className={cn("text-xs font-semibold px-2 py-0.5 rounded-full",
+                          pRoi >= 3 ? "bg-green-100 text-green-700" :
+                          pRoi >= 1.5 ? "bg-blue-100 text-blue-700" :
+                          "bg-red-100 text-red-600")}>
+                          {pRoi > 0 ? `${pRoi.toFixed(2)}x` : "—"}
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <div className="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: p.color }} />
+                          </div>
+                          <span className="text-xs text-gray-500 w-10 text-right">{pct.toFixed(1)}%</span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="bg-pink-50 font-semibold text-sm border-t border-pink-100">
+                  <td className="py-3 pl-4 text-pink-700">合计</td>
+                  <Td bold className="text-pink-700">¥{formatMoney(totalAdSpend)}</Td>
+                  <Td className="text-pink-700">¥{formatMoney(totalGMV)}</Td>
+                  <Td className="text-pink-700">
+                    {totalAdSpend > 0 ? `${(totalGMV / totalAdSpend).toFixed(2)}x` : "—"}
+                  </Td>
+                  <Td>100%</Td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+      </Section>
+
+      {/* ══════════════════════════════════
+          第五区块：达人营销汇总
+      ══════════════════════════════════ */}
+      <Section title="达人营销" subtitle="付费达人合作数据" icon={<Users size={15} className="text-violet-500" />}>
+        {/* 指标行 */}
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <MiniCard label="达人总数" value={loading ? null : String(kols.length)} unit="位" />
+          <MiniCard label="期间合作费用" value={loading ? null : (kpis ? `¥${formatMoney(kpis.totalKolSpend)}` : "—")} unit="元" />
+          <MiniCard label="平均 ROI" value={loading ? null : (kpis && kpis.avgKolRoi > 0 ? `${kpis.avgKolRoi}x` : "—")} unit="" />
+        </div>
+        {/* 达人列表 */}
+        {loading ? (
+          <SkeletonTable rows={4} />
+        ) : kols.length === 0 ? (
+          <EmptyHint text="暂无达人数据，请在「达人管理」模块添加" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 text-xs text-gray-500">
+                  <Th align="left">达人名称</Th>
+                  <Th align="left">平台</Th>
+                  <Th>粉丝数</Th>
+                  <Th>合作状态</Th>
+                  <Th>报价（元）</Th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {kols.slice(0, 10).map((k) => (
+                  <tr key={k.id} className="hover:bg-gray-50/60 transition-colors">
+                    <td className="py-2.5 pl-4 font-medium text-gray-800">{k.name}</td>
+                    <td className="py-2.5 pl-4">
+                      <span className="text-xs text-gray-500">{k.platform}</span>
+                    </td>
+                    <Td>{k.fans_count ? formatNum(k.fans_count) : "—"}</Td>
+                    <td className="py-2.5 text-center">
+                      <StatusBadge status={k.status} />
+                    </td>
+                    <Td>{k.fee ? `¥${formatMoney(k.fee)}` : "—"}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {kols.length > 10 && (
+              <p className="text-xs text-gray-400 text-center py-2">
+                共 {kols.length} 位达人，更多请前往「达人管理」查看
+              </p>
+            )}
+          </div>
+        )}
+      </Section>
+
+      {/* ══════════════════════════════════
+          第六区块：内容运营汇总
+      ══════════════════════════════════ */}
+      <Section title="内容运营" subtitle="官方账号内容数据" icon={<FileVideo size={15} className="text-violet-500" />}>
+        {/* 指标行 */}
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <MiniCard label="发布内容" value={loading ? null : String(content.length)} unit="篇" />
+          <MiniCard label="总播放 / 阅读" value={loading ? null : (kpis ? formatNum(kpis.totalViews) : "—")} unit="" />
+          <MiniCard label="覆盖平台" value={loading ? null : String(Object.keys(contentByPlatform).length)} unit="个" />
+        </div>
+
+        {/* 平台分布 */}
+        {!loading && Object.keys(contentByPlatform).length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            {Object.entries(contentByPlatform).sort((a, b) => b[1] - a[1]).map(([plat, count]) => (
+              <div key={plat} className="flex items-center gap-1.5 bg-gray-50 rounded-lg px-3 py-1.5 text-xs">
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: PLATFORM_COLORS[plat] || "#94a3b8" }} />
+                <span className="text-gray-600">{plat}</span>
+                <span className="font-semibold text-gray-800">{count}篇</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* 内容列表 */}
+        {loading ? (
+          <SkeletonTable rows={5} />
+        ) : content.length === 0 ? (
+          <EmptyHint text="暂无内容数据，请在「内容运营」模块添加" />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 text-xs text-gray-500">
+                  <Th align="left" className="w-8">#</Th>
+                  <Th align="left">内容标题</Th>
+                  <Th align="left">平台</Th>
+                  <Th>发布日期</Th>
+                  <Th>播放 / 阅读</Th>
+                  <Th>点赞</Th>
+                  <Th>评论</Th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {content.slice(0, 10).map((c, i) => (
+                  <tr key={c.id} className="hover:bg-gray-50/60 transition-colors">
+                    <td className="py-2.5 pl-4 text-gray-400 text-xs">{i + 1}</td>
+                    <td className="py-2.5 pl-2 font-medium text-gray-800 max-w-[240px] truncate">{c.title}</td>
+                    <td className="py-2.5 pl-2">
+                      <span className="text-xs" style={{ color: PLATFORM_COLORS[c.platform] || "#94a3b8" }}>
+                        {c.platform}
+                      </span>
+                    </td>
+                    <Td>{c.publish_date || "—"}</Td>
+                    <Td bold>{c.views ? formatNum(c.views) : "—"}</Td>
+                    <Td>{c.likes ? formatNum(c.likes) : "—"}</Td>
+                    <Td>{c.comments ? formatNum(c.comments) : "—"}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {content.length > 10 && (
+              <p className="text-xs text-gray-400 text-center py-2">
+                共 {content.length} 条内容，更多请前往「内容运营」查看
+              </p>
+            )}
+          </div>
+        )}
+      </Section>
+
+      {/* 底部留白 */}
+      <div className="h-6" />
     </div>
   );
 }
 
-// ---- KOL Tab ----
+// ── 通用组件 ──────────────────────────────────
 
-function KolTab({
-  loading,
-  kols,
-  kolCoops,
-  kpis,
+function Section({
+  title, subtitle, children, icon,
 }: {
-  loading: boolean;
-  kols: KolRow[];
-  kolCoops: KolCoop[];
-  kpis: KPIs | undefined;
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+  icon?: React.ReactNode;
 }) {
-  const STATUS_COLORS: Record<string, string> = {
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+      <div className="flex items-center gap-2 px-5 py-4 border-b border-gray-50">
+        {icon}
+        <div>
+          <h2 className="text-sm font-semibold text-gray-800">{title}</h2>
+          {subtitle && <p className="text-xs text-gray-400">{subtitle}</p>}
+        </div>
+      </div>
+      <div className="p-5">{children}</div>
+    </div>
+  );
+}
+
+function KpiCard({
+  label, value, sub, color, icon,
+}: {
+  label: string;
+  value: string | null;
+  sub: string;
+  color: "violet" | "blue" | "pink" | "green";
+  icon: React.ReactNode;
+}) {
+  const cm = {
+    violet: { bg: "bg-violet-50", text: "text-violet-700", icon: "text-violet-400", sub: "text-violet-400" },
+    blue: { bg: "bg-blue-50", text: "text-blue-700", icon: "text-blue-400", sub: "text-blue-400" },
+    pink: { bg: "bg-pink-50", text: "text-pink-700", icon: "text-pink-400", sub: "text-pink-400" },
+    green: { bg: "bg-green-50", text: "text-green-700", icon: "text-green-400", sub: "text-green-400" },
+  }[color];
+  return (
+    <div className={cn("rounded-xl p-4", cm.bg)}>
+      <div className="flex items-center justify-between mb-2">
+        <p className={cn("text-xs font-medium", cm.sub)}>{label}</p>
+        <span className={cm.icon}>{icon}</span>
+      </div>
+      {value === null ? (
+        <div className="h-7 w-20 bg-current opacity-10 rounded animate-pulse" />
+      ) : (
+        <p className={cn("text-xl font-bold", cm.text)}>{value}</p>
+      )}
+      <p className={cn("text-xs mt-1", cm.sub)}>{sub}</p>
+    </div>
+  );
+}
+
+function MiniCard({ label, value, unit }: { label: string; value: string | null; unit: string }) {
+  return (
+    <div className="bg-gray-50 rounded-xl p-3">
+      <p className="text-xs text-gray-400 mb-1">{label}</p>
+      {value === null ? (
+        <div className="h-6 w-16 bg-gray-200 rounded animate-pulse" />
+      ) : (
+        <p className="text-base font-bold text-gray-800">
+          {value} <span className="text-xs font-normal text-gray-400">{unit}</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+function Th({ children, align = "right", className }: {
+  children?: React.ReactNode; align?: "left" | "right" | "center"; className?: string;
+}) {
+  return (
+    <th className={cn("py-2.5 px-4 font-medium whitespace-nowrap",
+      align === "left" ? "text-left" : align === "center" ? "text-center" : "text-right",
+      className)}>
+      {children}
+    </th>
+  );
+}
+
+function Td({ children, bold, className }: {
+  children?: React.ReactNode; bold?: boolean; className?: string;
+}) {
+  return (
+    <td className={cn("py-2.5 px-4 text-right text-gray-600 whitespace-nowrap",
+      bold && "font-semibold text-gray-800", className)}>
+      {children}
+    </td>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, string> = {
     合作中: "bg-green-100 text-green-700",
     洽谈中: "bg-blue-100 text-blue-700",
     待联系: "bg-amber-100 text-amber-700",
     已完成: "bg-gray-100 text-gray-500",
     已拒绝: "bg-red-100 text-red-500",
   };
-
-  const platformCounts = kols.reduce(
-    (acc, k) => {
-      acc[k.platform] = (acc[k.platform] || 0) + 1;
-      return acc;
-    },
-    {} as Record<string, number>
-  );
-
   return (
-    <div className="space-y-6">
-      {/* KOL summary */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-violet-50 rounded-xl p-4">
-          <p className="text-xs text-violet-500 mb-1">达人总数</p>
-          <p className="text-2xl font-bold text-violet-700">{loading ? "—" : kols.length}</p>
-        </div>
-        <div className="bg-pink-50 rounded-xl p-4">
-          <p className="text-xs text-pink-500 mb-1">期间合作费用</p>
-          <p className="text-2xl font-bold text-pink-700">
-            {loading ? "—" : kpis ? `¥${formatMoney(kpis.totalKolSpend)}` : "—"}
-          </p>
-        </div>
-        <div className="bg-amber-50 rounded-xl p-4">
-          <p className="text-xs text-amber-600 mb-1">平均ROI</p>
-          <p className="text-2xl font-bold text-amber-600">
-            {loading ? "—" : kpis && kpis.avgKolRoi > 0 ? `${kpis.avgKolRoi}x` : "—"}
-          </p>
-        </div>
-      </div>
-
-      {/* Platform distribution */}
-      {!loading && Object.keys(platformCounts).length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-100 p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">平台分布</h3>
-          <div className="flex flex-wrap gap-3">
-            {Object.entries(platformCounts).map(([plat, count]) => (
-              <div
-                key={plat}
-                className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-2"
-              >
-                <span
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: PLATFORM_COLORS[plat] || "#94a3b8" }}
-                />
-                <span className="text-sm text-gray-700">{plat}</span>
-                <span className="text-sm font-semibold text-gray-900">{count}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* KOL list */}
-      <div className="bg-white rounded-xl border border-gray-100 p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-4">达人列表</h3>
-        {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-12 bg-gray-50 rounded-lg animate-pulse" />
-            ))}
-          </div>
-        ) : kols.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-6">
-            暂无达人数据，请在「达人管理」模块添加
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left border-b border-gray-50">
-                  <th className="pb-2 text-xs text-gray-400 font-medium">达人名称</th>
-                  <th className="pb-2 text-xs text-gray-400 font-medium">平台</th>
-                  <th className="pb-2 text-xs text-gray-400 font-medium text-right">粉丝数</th>
-                  <th className="pb-2 text-xs text-gray-400 font-medium text-center">状态</th>
-                  <th className="pb-2 text-xs text-gray-400 font-medium text-right">报价</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {kols.slice(0, 15).map((k) => (
-                  <tr key={k.id}>
-                    <td className="py-2.5 font-medium text-gray-800">{k.name}</td>
-                    <td className="py-2.5">
-                      <span className="text-xs text-gray-500">{k.platform}</span>
-                    </td>
-                    <td className="py-2.5 text-right text-gray-500">
-                      {k.fans_count ? formatNum(k.fans_count) : "—"}
-                    </td>
-                    <td className="py-2.5 text-center">
-                      <span
-                        className={cn(
-                          "text-xs px-2 py-0.5 rounded-full font-medium",
-                          STATUS_COLORS[k.status] || "bg-gray-100 text-gray-500"
-                        )}
-                      >
-                        {k.status || "—"}
-                      </span>
-                    </td>
-                    <td className="py-2.5 text-right text-gray-500">
-                      {k.fee ? `¥${formatMoney(k.fee)}` : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            {kols.length > 15 && (
-              <p className="text-xs text-gray-400 text-center pt-3">
-                共 {kols.length} 位达人，更多请前往「达人管理」查看
-              </p>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
+    <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium",
+      map[status] || "bg-gray-100 text-gray-400")}>
+      {status || "—"}
+    </span>
   );
 }
 
-// ---- Content Tab ----
-
-function ContentTab({
-  loading,
-  content,
-  kpis,
-}: {
-  loading: boolean;
-  content: ContentRow[];
-  kpis: KPIs | undefined;
-}) {
-  const platformCounts = content.reduce(
-    (acc, c) => {
-      acc[c.platform] = (acc[c.platform] || 0) + 1;
-      return acc;
-    },
-    {} as Record<string, number>
-  );
-
-  const maxCount = Math.max(...Object.values(platformCounts), 1);
-
+function EmptyHint({ text }: { text: string }) {
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-3 gap-4">
-        <div className="bg-violet-50 rounded-xl p-4">
-          <p className="text-xs text-violet-500 mb-1">期间发布内容</p>
-          <p className="text-2xl font-bold text-violet-700">
-            {loading ? "—" : kpis?.contentCount || content.length}
-          </p>
-        </div>
-        <div className="bg-pink-50 rounded-xl p-4">
-          <p className="text-xs text-pink-500 mb-1">总播放 / 阅读</p>
-          <p className="text-2xl font-bold text-pink-700">
-            {loading ? "—" : kpis ? formatNum(kpis.totalViews) : "—"}
-          </p>
-        </div>
-        <div className="bg-blue-50 rounded-xl p-4">
-          <p className="text-xs text-blue-500 mb-1">覆盖平台</p>
-          <p className="text-2xl font-bold text-blue-700">
-            {loading ? "—" : Object.keys(platformCounts).length || "—"}
-          </p>
-        </div>
-      </div>
-
-      {/* Platform distribution */}
-      {!loading && Object.keys(platformCounts).length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-100 p-5">
-          <h3 className="text-sm font-semibold text-gray-700 mb-4">平台内容分布</h3>
-          <div className="space-y-3">
-            {Object.entries(platformCounts)
-              .sort((a, b) => b[1] - a[1])
-              .map(([plat, count]) => (
-                <div key={plat}>
-                  <div className="flex justify-between text-sm text-gray-600 mb-1">
-                    <span>{plat}</span>
-                    <span className="font-medium">{count} 篇</span>
-                  </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full"
-                      style={{
-                        width: `${(count / maxCount) * 100}%`,
-                        backgroundColor: PLATFORM_COLORS[plat] || "#8b5cf6",
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-          </div>
-        </div>
-      )}
-
-      {/* Content list */}
-      <div className="bg-white rounded-xl border border-gray-100 p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-4">
-          高播放内容 TOP {Math.min(content.length, 10)}
-        </h3>
-        {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-14 bg-gray-50 rounded-lg animate-pulse" />
-            ))}
-          </div>
-        ) : content.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-6">
-            暂无内容数据，请在「内容运营」模块添加
-          </p>
-        ) : (
-          <div className="space-y-0 divide-y divide-gray-50">
-            {content.slice(0, 10).map((c, i) => (
-              <div key={c.id} className="flex items-start gap-3 py-3">
-                <span
-                  className={cn(
-                    "w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5",
-                    i === 0
-                      ? "bg-yellow-100 text-yellow-700"
-                      : i === 1
-                      ? "bg-gray-100 text-gray-600"
-                      : i === 2
-                      ? "bg-orange-100 text-orange-600"
-                      : "bg-gray-50 text-gray-400"
-                  )}
-                >
-                  {i + 1}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-800 truncate">{c.title}</p>
-                  <p className="text-xs text-gray-400">
-                    {c.platform}
-                    {c.publish_date && ` · ${c.publish_date}`}
-                  </p>
-                </div>
-                <div className="text-right shrink-0">
-                  <p className="text-sm font-semibold text-gray-700">
-                    {c.views ? formatNum(c.views) : "—"}
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    {c.likes ? `${formatNum(c.likes)}赞` : "—"}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+    <div className="py-10 text-center text-sm text-gray-400">{text}</div>
   );
 }
 
-// ---- Channel Tab ----
-
-function ChannelTab({
-  loading,
-  byPlatform,
-}: {
-  loading: boolean;
-  byPlatform: PlatformData[];
-}) {
-  // Show 渠道分销 platform data + import guide
-  const channelData = byPlatform.find((p) => p.platform === "渠道分销");
-
+function SkeletonTable({ rows }: { rows: number }) {
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-violet-50 rounded-xl p-4">
-          <p className="text-xs text-violet-500 mb-1">渠道销售额</p>
-          <p className="text-2xl font-bold text-violet-700">
-            {loading ? "—" : channelData ? `¥${formatMoney(channelData.gmv)}` : "—"}
-          </p>
-        </div>
-        <div className="bg-blue-50 rounded-xl p-4">
-          <p className="text-xs text-blue-500 mb-1">渠道订单数</p>
-          <p className="text-2xl font-bold text-blue-700">
-            {loading ? "—" : channelData ? formatNum(channelData.orders) : "—"}
-          </p>
-        </div>
-      </div>
-
-      {/* All platform GMV breakdown for channels */}
-      <div className="bg-white rounded-xl border border-gray-100 p-5">
-        <h3 className="text-sm font-semibold text-gray-700 mb-4">
-          各平台销售明细
-        </h3>
-        {loading ? (
-          <div className="space-y-3">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="h-10 bg-gray-50 rounded-lg animate-pulse" />
-            ))}
-          </div>
-        ) : byPlatform.length === 0 ? (
-          <div className="text-center py-8">
-            <Upload size={32} className="mx-auto text-gray-300 mb-3" />
-            <p className="text-sm text-gray-500 font-medium mb-1">暂无销售数据</p>
-            <p className="text-xs text-gray-400">
-              点击右上角「导入Excel」上传历史数据
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {byPlatform.map((p) => {
-              const total = byPlatform.reduce((s, x) => s + x.gmv, 0);
-              const pct = total > 0 ? (p.gmv / total) * 100 : 0;
-              return (
-                <div key={p.platform}>
-                  <div className="flex justify-between text-sm mb-1">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="w-2.5 h-2.5 rounded-full"
-                        style={{ backgroundColor: p.color }}
-                      />
-                      <span className="text-gray-700">{p.platform}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-gray-500 text-xs">
-                        {formatNum(p.orders)} 单
-                      </span>
-                      <span className="font-semibold text-gray-800">
-                        ¥{formatMoney(p.gmv)}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                    <div
-                      className="h-full rounded-full transition-all duration-300"
-                      style={{
-                        width: `${pct}%`,
-                        backgroundColor: p.color,
-                      }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Import guide */}
-      <div className="bg-blue-50 rounded-xl p-5 border border-blue-100">
-        <div className="flex items-start gap-3">
-          <Download size={18} className="text-blue-500 mt-0.5 shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-blue-700 mb-1">如何导入历史数据</p>
-            <ul className="text-xs text-blue-600 space-y-1 list-disc list-inside">
-              <li>Excel文件需包含：日期、平台、销售额（GMV）等列</li>
-              <li>日期格式支持：2026-01-15、2026/1/15、2026.1.15</li>
-              <li>平台名称支持：天猫、京东、抖音、小红书、视频号、渠道分销</li>
-              <li>支持多个Sheet页，按Sheet页自动识别平台</li>
-              <li>已有数据会按「日期+平台」自动去重更新</li>
-            </ul>
-          </div>
-        </div>
-      </div>
+    <div className="space-y-2">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="h-10 bg-gray-50 rounded-lg animate-pulse" />
+      ))}
     </div>
   );
 }
