@@ -184,31 +184,22 @@ export default function SettingsPage() {
     e.preventDefault();
     setAddLoading(true);
     setAddError(null);
-    const { data, error } = await supabase.auth.signUp({
-      email: addForm.email,
-      password: addForm.password,
-      options: {
-        data: {
-          full_name: addForm.full_name,
-          role: addForm.role,
-          department: addForm.department,
-        },
-      },
-    });
-    if (error) {
-      setAddError(error.message);
-      setAddLoading(false);
-      return;
-    }
-    if (data.user) {
-      await supabase.from("profiles").upsert({
-        id: data.user.id,
+    const res = await fetch("/api/admin/create-user", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
         email: addForm.email,
+        password: addForm.password,
         full_name: addForm.full_name,
         role: addForm.role,
         department: addForm.department,
-        is_active: true,
-      });
+      }),
+    });
+    const result = await res.json();
+    if (!res.ok || result.error) {
+      setAddError(result.error || "创建失败，请重试");
+      setAddLoading(false);
+      return;
     }
     setAddLoading(false);
     setShowAddModal(false);
