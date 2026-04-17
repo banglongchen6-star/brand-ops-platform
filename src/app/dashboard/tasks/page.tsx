@@ -114,9 +114,13 @@ export default function TasksPage() {
     setLoading(true);
     const { data, error } = await supabase
       .from("tasks")
-      .select("*, profiles(full_name)")
+      .select("*")
       .order("created_at", { ascending: false });
-    if (!error) setTasks(data || []);
+    if (error) {
+      console.error("fetchTasks error:", error.message);
+    } else {
+      setTasks(data || []);
+    }
     setLoading(false);
   }
 
@@ -339,7 +343,9 @@ export default function TasksPage() {
 
                     {/* Assignee */}
                     <div className="col-span-2 text-sm text-gray-600">
-                      {(task.profiles as { full_name: string | null } | null)?.full_name || "未分配"}
+                      {task.assigned_to
+                        ? (profiles.find(p => p.id === task.assigned_to)?.full_name || "未知用户")
+                        : "未分配"}
                     </div>
 
                     {/* Priority */}
