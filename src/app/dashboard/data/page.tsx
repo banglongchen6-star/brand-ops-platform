@@ -1,49 +1,58 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
+import * as XLSX from "xlsx";
 import {
-  Upload, RefreshCw, ChevronDown,
+  Upload, Download, RefreshCw, ChevronDown,
   AlertCircle, CheckCircle2, Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useRef } from "react";
 
 // ── 平台配置 ──────────────────────────────
-const PLATFORMS = ["天猫", "京东", "抖音", "小红书", "视频号", "渠道分销", "其他"];
-
-const PLATFORM_COLOR: Record<string, { dot: string; badge: string }> = {
-  天猫:   { dot: "#f97316", badge: "bg-orange-50 text-orange-700 border-orange-200" },
-  京东:   { dot: "#ef4444", badge: "bg-red-50 text-red-700 border-red-200" },
-  抖音:   { dot: "#ec4899", badge: "bg-pink-50 text-pink-700 border-pink-200" },
-  小红书: { dot: "#f43f5e", badge: "bg-rose-50 text-rose-700 border-rose-200" },
-  视频号: { dot: "#22c55e", badge: "bg-green-50 text-green-700 border-green-200" },
-  渠道分销:{ dot: "#8b5cf6", badge: "bg-violet-50 text-violet-700 border-violet-200" },
-  其他:   { dot: "#94a3b8", badge: "bg-gray-50 text-gray-500 border-gray-200" },
+const PLATFORM_COLOR: Record<string, string> = {
+  天猫: "#f97316", 京东: "#ef4444", 抖音: "#ec4899",
+  小红书: "#f43f5e", 视频号: "#22c55e", 渠道分销: "#8b5cf6", 其他: "#94a3b8",
 };
 
+// ── 指标配置 ──────────────────────────────
+type MetricKey = "gmv" | "orders" | "refund" | "adSpend";
+const METRICS: { key: MetricKey; label: string; unit: string }[] = [
+  { key: "gmv",     label: "销售额",   unit: "元" },
+  { key: "orders",  label: "订单数",   unit: "单" },
+  { key: "refund",  label: "退货金额", unit: "元" },
+  { key: "adSpend", label: "推广费",   unit: "元" },
+];
+
 // ── 格式化 ────────────────────────────────
-function fmt(n: number, type: "money" | "num" | "roi" | "pct") {
-  if (n === 0 || isNaN(n)) return "—";
-  if (type === "money") {
-    if (n >= 10000000) return `${(n / 10000000).toFixed(2)}千万`;
-    if (n >= 10000)    return `${(n / 10000).toFixed(1)}万`;
+function fmt(n: number, isMoney: boolean): string {
+  if (!n || isNaN(n)) return "—";
+  if (isMoney) {
+    if (n >= 10_000_000) return `${(n / 10_000_000).toFixed(2)}千万`;
+    if (n >= 10_000)     return `${(n / 10_000).toFixed(1)}万`;
     return `¥${n.toLocaleString()}`;
   }
-  if (type === "num") {
-    if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
-    return n.toLocaleString();
-  }
-  if (type === "roi")  return `${n.toFixed(2)}x`;
-  if (type === "pct")  return `${n.toFixed(1)}%`;
-  return String(n);
+  if (n >= 10_000) return `${(n / 10_000).toFixed(1)}万`;
+  return n.toLocaleString();
+}
+
+function fmtRaw(n: number): string {
+  return n > 0 ? n.toLocaleString() : "0";
 }
 
 // ── 类型 ──────────────────────────────────
-interface PlatData { platform: string; color: string; gmv: number; orders: number; adSpend: number }
+interface Metrics { gmv: number; orders: number; adSpend: number; refund: number }
+interface DateRow  { dateKey: string; platData: Record<string, Metrics>; total: Metrics }
+interface PlatData { platform: string; color: string; gmv: number; orders: number; adSpend: number; refund: number }
 interface KolRow   { id: string; name: string; platform: string; fans_count: number; status: string; fee: number }
 interface KolCoop  { id: string; fee: number; roi: number; actual_views: number }
 interface ContentRow { id: string; title: string; platform: string; publish_date: string; views: number; likes: number; comments: number }
-interface KPIs { totalGMV: number; totalOrders: number; totalAdSpend: number; roi: number; totalKolSpend: number; avgKolRoi: number; contentCount: number; totalViews: number }
-interface DataResp { kpis: KPIs; byPlatform: PlatData[]; kols: KolRow[]; kolCoops: KolCoop[]; content: ContentRow[]; hasData: boolean }
+interface KPIs { totalGMV: number; totalOrders: number; totalAdSpend: number; totalRefund: number; roi: number; totalKolSpend: number; avgKolRoi: number; contentCount: number; totalViews: number }
+interface DataResp {
+  kpis: KPIs; byPlatform: PlatData[]; activePlatforms: string[];
+  dateRows: DateRow[]; kols: KolRow[]; kolCoops: KolCoop[];
+  content: ContentRow[]; hasData: boolean; month: string | null; year: number;
+}
 
 // ── 年月选择 ──────────────────────────────
 const CURRENT_YEAR = new Date().getFullYear();
@@ -57,12 +66,13 @@ const MONTHS = [
 //  主页面
 // ══════════════════════════════════════════
 export default function DataPage() {
-  const [year,  setYear]  = useState(CURRENT_YEAR);
-  const [month, setMonth] = useState("");
-  const [data,  setData]  = useState<DataResp | null>(null);
-  const [loading,   setLoading]   = useState(true);
-  const [importing, setImporting] = useState(false);
-  const [toast, setToast] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [year,   setYear]   = useState(CURRENT_YEAR);
+  const [month,  setMonth]  = useState(String(new Date().getMonth() + 1));
+  const [metric, setMetric] = useState<MetricKey>("gmv");
+  const [data,   setData]   = useState<DataResp | null>(null);
+  const [loading,    setLoading]    = useState(true);
+  const [importing,  setImporting]  = useState(false);
+  const [toast,      setToast]      = useState<{ ok: boolean; msg: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const fetchData = useCallback(async () => {
@@ -78,6 +88,7 @@ export default function DataPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // ── 导入 ─────────────────────────────────
   async function handleImport(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -92,49 +103,88 @@ export default function DataPage() {
     finally { setImporting(false); if (fileRef.current) fileRef.current.value = ""; }
   }
 
-  // ── 构建各平台数据 map ───────────────────
-  const platMap: Record<string, PlatData> = {};
-  (data?.byPlatform || []).forEach(p => { platMap[p.platform] = p; });
+  // ── 导出 Excel ───────────────────────────
+  function handleExport() {
+    if (!data) return;
+    const activePlats = data.activePlatforms || [];
+    const metaInfo    = METRICS.find(m => m.key === metric)!;
+    const isMoney     = metric === "gmv" || metric === "refund" || metric === "adSpend";
+    const periodLabel = `${year}年${month ? month + "月" : "全年"}`;
 
-  const activePlats = PLATFORMS.filter(p => platMap[p]?.gmv || platMap[p]?.orders);
-  const showPlats   = activePlats.length ? activePlats : PLATFORMS.slice(0, 5); // fallback
+    // 表头
+    const header = ["日期", ...activePlats, "合计"];
+    const rows: (string | number)[][] = [header];
 
-  const totalGMV      = showPlats.reduce((s, p) => s + (platMap[p]?.gmv || 0), 0);
-  const totalOrders   = showPlats.reduce((s, p) => s + (platMap[p]?.orders || 0), 0);
-  const totalAdSpend  = showPlats.reduce((s, p) => s + (platMap[p]?.adSpend || 0), 0);
-  const totalROI      = totalAdSpend > 0 ? totalGMV / totalAdSpend : 0;
+    // 数据行
+    (data.dateRows || []).forEach(row => {
+      const dateLabel = data.month
+        ? `${year}-${String(month).padStart(2, "0")}-${row.dateKey}`
+        : `${year}-${row.dateKey}`;
+      const cells: (string | number)[] = [dateLabel];
+      activePlats.forEach(p => {
+        const v = row.platData[p]?.[metric] || 0;
+        cells.push(v);
+      });
+      cells.push(row.total[metric] || 0);
+      rows.push(cells);
+    });
 
-  // KOL 按平台分组（简单用 kols.platform）
-  const kolByPlat: Record<string, { count: number; spend: number; views: number }> = {};
+    // 合计行
+    const totals: (string | number)[] = ["合计"];
+    activePlats.forEach(p => {
+      const sum = (data.dateRows || []).reduce((s, r) => s + (r.platData[p]?.[metric] || 0), 0);
+      totals.push(sum);
+    });
+    const grandTotal = (data.dateRows || []).reduce((s, r) => s + (r.total[metric] || 0), 0);
+    totals.push(grandTotal);
+    rows.push(totals);
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, `${metaInfo.label}`);
+
+    // KPI 汇总 sheet
+    const kpiRows = [
+      ["指标", "数值"],
+      ["总销售额（元）", data.kpis?.totalGMV || 0],
+      ["总订单数", data.kpis?.totalOrders || 0],
+      ["总退货金额（元）", data.kpis?.totalRefund || 0],
+      ["总推广费（元）", data.kpis?.totalAdSpend || 0],
+      ["推广ROI", data.kpis?.roi || 0],
+      ["达人投入费用（元）", data.kpis?.totalKolSpend || 0],
+      ["达人平均ROI", data.kpis?.avgKolRoi || 0],
+      ["内容发布数", data.kpis?.contentCount || 0],
+      ["内容总播放量", data.kpis?.totalViews || 0],
+    ];
+    const ws2 = XLSX.utils.aoa_to_sheet(kpiRows);
+    XLSX.utils.book_append_sheet(wb, ws2, "KPI汇总");
+
+    XLSX.writeFile(wb, `数据中心_${periodLabel}_${metaInfo.label}.xlsx`);
+  }
+
+  // ── 派生数据 ──────────────────────────────
+  const activePlats  = data?.activePlatforms || [];
+  const dateRows     = data?.dateRows || [];
+  const isMoney      = metric === "gmv" || metric === "refund" || metric === "adSpend";
+  const periodLabel  = `${year}年${month ? month + "月" : "全年"}`;
+  const metricLabel  = METRICS.find(m => m.key === metric)?.label || "";
+
+  // KPI 卡片数据
+  const kpis = data?.kpis;
+
+  // 列合计（每平台）
+  const colTotals: Record<string, number> = {};
+  activePlats.forEach(p => {
+    colTotals[p] = dateRows.reduce((s, r) => s + (r.platData[p]?.[metric] || 0), 0);
+  });
+  const grandTotal = dateRows.reduce((s, r) => s + (r.total[metric] || 0), 0);
+
+  // 达人 & 内容
+  const kolByPlat: Record<string, { count: number; spend: number }> = {};
   (data?.kols || []).forEach(k => {
-    if (!kolByPlat[k.platform]) kolByPlat[k.platform] = { count: 0, spend: 0, views: 0 };
+    if (!kolByPlat[k.platform]) kolByPlat[k.platform] = { count: 0, spend: 0 };
     kolByPlat[k.platform].count++;
-    kolByPlat[k.platform].spend += k.fee || 0;
   });
-  (data?.kolCoops || []).forEach(c => {
-    // kolCoops 无平台，全部归入总量（单独显示合计列）
-    if (!kolByPlat["__total__"]) kolByPlat["__total__"] = { count: 0, spend: 0, views: 0 };
-    kolByPlat["__total__"].spend += c.fee || 0;
-    kolByPlat["__total__"].views += c.actual_views || 0;
-  });
-  const totalKolSpend = data?.kpis?.totalKolSpend || 0;
-  const totalKolViews = kolByPlat["__total__"]?.views || 0;
-  const totalKolCount = (data?.kols || []).length;
-  const avgKolROI     = data?.kpis?.avgKolRoi || 0;
-
-  // 内容按平台分组
-  const contentByPlat: Record<string, { count: number; views: number; likes: number }> = {};
-  (data?.content || []).forEach(c => {
-    if (!contentByPlat[c.platform]) contentByPlat[c.platform] = { count: 0, views: 0, likes: 0 };
-    contentByPlat[c.platform].count++;
-    contentByPlat[c.platform].views += c.views || 0;
-    contentByPlat[c.platform].likes += c.likes || 0;
-  });
-  const totalContent = data?.kpis?.contentCount || 0;
-  const totalViews   = data?.kpis?.totalViews || 0;
-  const totalLikes   = (data?.content || []).reduce((s, c) => s + (c.likes || 0), 0);
-
-  const periodLabel = `${year}年${month ? month + "月" : "全年"}`;
 
   return (
     <div className="p-6 min-h-screen bg-gray-50">
@@ -155,6 +205,10 @@ export default function DataPage() {
           <button onClick={fetchData} disabled={loading}
             className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-50">
             <RefreshCw size={13} className={loading ? "animate-spin" : ""} />刷新
+          </button>
+          <button onClick={handleExport} disabled={loading || !data?.hasData}
+            className="flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg text-sm cursor-pointer hover:bg-emerald-700 disabled:opacity-40">
+            <Download size={13} />导出Excel
           </button>
           <label className="flex items-center gap-1.5 px-3 py-2 bg-violet-600 text-white rounded-lg text-sm cursor-pointer hover:bg-violet-700">
             {importing ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
@@ -185,217 +239,174 @@ export default function DataPage() {
         </div>
       )}
 
+      {/* ── KPI 卡片 ── */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        <KpiCard label="总销售额" value={kpis ? fmt(kpis.totalGMV, true) : "—"} sub={`订单 ${kpis ? fmtRaw(kpis.totalOrders) : "—"} 单`} color="text-orange-600" loading={loading} />
+        <KpiCard label="总退货金额" value={kpis ? fmt(kpis.totalRefund, true) : "—"} sub={kpis && kpis.totalGMV > 0 ? `退货率 ${((kpis.totalRefund / kpis.totalGMV) * 100).toFixed(1)}%` : "—"} color="text-red-500" loading={loading} />
+        <KpiCard label="总推广费" value={kpis ? fmt(kpis.totalAdSpend, true) : "—"} sub={`ROI ${kpis ? kpis.roi.toFixed(2) + "x" : "—"}`} color="text-violet-600" loading={loading} />
+        <KpiCard label="内容播放量" value={kpis ? fmt(kpis.totalViews, false) : "—"} sub={`内容 ${kpis ? kpis.contentCount : "—"} 篇`} color="text-blue-600" loading={loading} />
+      </div>
+
+      {/* ── 指标切换 ── */}
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-xs text-gray-400 mr-1">查看指标：</span>
+        {METRICS.map(m => (
+          <button key={m.key} onClick={() => setMetric(m.key)}
+            className={cn("px-3.5 py-1.5 rounded-full text-xs font-medium transition-colors",
+              metric === m.key
+                ? "bg-violet-600 text-white"
+                : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50")}>
+            {m.label}（{m.unit}）
+          </button>
+        ))}
+      </div>
+
       {/* ══════════════════════════════════════
-          汇总大表
+          日期 × 平台 大表
       ══════════════════════════════════════ */}
-      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+      <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden mb-4">
+        <div className="px-5 py-3.5 border-b border-gray-50 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-gray-800">{periodLabel} · {metricLabel}明细</p>
+            <p className="text-xs text-gray-400 mt-0.5">纵轴：日期 &nbsp;|&nbsp; 横轴：平台</p>
+          </div>
+          {!loading && activePlats.length === 0 && (
+            <span className="text-xs text-gray-400">暂无平台数据</span>
+          )}
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm border-collapse">
-
-            {/* ── 表头：平台列 ── */}
             <thead>
               <tr className="bg-gray-50 border-b border-gray-100">
-                <th className="sticky left-0 z-10 bg-gray-50 py-3 px-4 text-left text-xs font-semibold text-gray-500 w-28 border-r border-gray-100">
-                  分类
+                {/* 日期列 */}
+                <th className="sticky left-0 z-10 bg-gray-50 py-3 px-4 text-left text-xs font-semibold text-gray-500 w-24 border-r border-gray-100 whitespace-nowrap">
+                  {month ? "日期" : "月份"}
                 </th>
-                <th className="py-3 px-4 text-left text-xs font-semibold text-gray-500 w-32 border-r border-gray-100">
-                  指标
-                </th>
-                {showPlats.map(p => (
-                  <th key={p} className="py-3 px-4 text-center text-xs font-semibold whitespace-nowrap">
+                {/* 平台列 */}
+                {activePlats.map(p => (
+                  <th key={p} className="py-3 px-4 text-center text-xs font-semibold whitespace-nowrap min-w-[100px]">
                     <div className="flex items-center justify-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full inline-block" style={{ background: PLATFORM_COLOR[p]?.dot || "#94a3b8" }} />
+                      <span className="w-2 h-2 rounded-full inline-block shrink-0"
+                        style={{ background: PLATFORM_COLOR[p] || "#94a3b8" }} />
                       {p}
                     </div>
                   </th>
                 ))}
-                <th className="py-3 px-4 text-center text-xs font-semibold text-violet-700 bg-violet-50 whitespace-nowrap border-l border-violet-100">
+                {/* 合计列 */}
+                <th className="py-3 px-4 text-center text-xs font-semibold text-violet-700 bg-violet-50 whitespace-nowrap border-l border-violet-100 min-w-[100px]">
                   合计
                 </th>
               </tr>
             </thead>
-
             <tbody>
+              {loading ? (
+                Array.from({ length: 8 }).map((_, i) => (
+                  <tr key={i} className="border-b border-gray-50">
+                    <td className="sticky left-0 bg-white py-3 px-4 border-r border-gray-100">
+                      <div className="h-4 w-12 bg-gray-100 rounded animate-pulse" />
+                    </td>
+                    {Array.from({ length: Math.max(activePlats.length || 3, 3) + 1 }).map((_, j) => (
+                      <td key={j} className="py-3 px-4 text-center">
+                        <div className="h-4 w-16 bg-gray-100 rounded animate-pulse mx-auto" />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : dateRows.length === 0 ? (
+                <tr>
+                  <td colSpan={activePlats.length + 2} className="py-16 text-center text-sm text-gray-400">
+                    暂无数据
+                  </td>
+                </tr>
+              ) : (
+                dateRows.map((row, idx) => {
+                  const dateLabel = month
+                    ? `${month}月${row.dateKey}日`
+                    : `${row.dateKey}月`;
+                  const totalVal = row.total[metric] || 0;
+                  const hasAnyData = activePlats.some(p => (row.platData[p]?.[metric] || 0) > 0);
+                  return (
+                    <tr key={row.dateKey}
+                      className={cn("border-b border-gray-50 transition-colors",
+                        hasAnyData ? "hover:bg-gray-50/60" : "opacity-50")}>
+                      {/* 日期 */}
+                      <td className="sticky left-0 z-10 bg-white py-2.5 px-4 text-xs font-medium text-gray-600 border-r border-gray-100 whitespace-nowrap"
+                        style={{ background: idx % 2 === 0 ? "white" : "#fafafa" }}>
+                        {dateLabel}
+                      </td>
+                      {/* 各平台 */}
+                      {activePlats.map(p => {
+                        const v = row.platData[p]?.[metric] || 0;
+                        return (
+                          <td key={p} className="py-2.5 px-4 text-center whitespace-nowrap">
+                            <span className={cn("text-sm",
+                              v > 0 ? "text-gray-800" : "text-gray-300")}>
+                              {v > 0 ? fmt(v, isMoney) : "—"}
+                            </span>
+                          </td>
+                        );
+                      })}
+                      {/* 合计 */}
+                      <td className="py-2.5 px-4 text-center whitespace-nowrap bg-violet-50/30 border-l border-violet-100">
+                        <span className={cn("text-sm font-semibold",
+                          totalVal > 0 ? "text-violet-700" : "text-gray-300")}>
+                          {totalVal > 0 ? fmt(totalVal, isMoney) : "—"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
 
-              {/* ════════════════════════════
-                  一、销售数据
-              ════════════════════════════ */}
-              <GroupHeader cols={showPlats.length + 3} color="bg-orange-50 text-orange-700">
-                一、销售数据
-              </GroupHeader>
-
-              {/* 销售额 */}
-              <DataRow
-                loading={loading}
-                category="销售"
-                label="销售额（元）"
-                highlight
-                plats={showPlats}
-                getCellVal={p => platMap[p]?.gmv || 0}
-                formatVal={v => fmt(v, "money")}
-                total={totalGMV}
-                formatTotal={v => fmt(v, "money")}
-                totalBold
-              />
-
-              {/* 销售数量 */}
-              <DataRow
-                loading={loading}
-                category=""
-                label="销售数量（单）"
-                plats={showPlats}
-                getCellVal={p => platMap[p]?.orders || 0}
-                formatVal={v => fmt(v, "num")}
-                total={totalOrders}
-                formatTotal={v => fmt(v, "num")}
-              />
-
-              {/* 推广费 */}
-              <DataRow
-                loading={loading}
-                category=""
-                label="推广费（元）"
-                plats={showPlats}
-                getCellVal={p => platMap[p]?.adSpend || 0}
-                formatVal={v => fmt(v, "money")}
-                total={totalAdSpend}
-                formatTotal={v => fmt(v, "money")}
-              />
-
-              {/* ROI */}
-              <DataRow
-                loading={loading}
-                category=""
-                label="推广 ROI"
-                plats={showPlats}
-                getCellVal={p => {
-                  const pd = platMap[p];
-                  return (pd?.adSpend && pd.adSpend > 0) ? pd.gmv / pd.adSpend : 0;
-                }}
-                formatVal={v => fmt(v, "roi")}
-                total={totalROI}
-                formatTotal={v => fmt(v, "roi")}
-                colorVal={v => v >= 3 ? "text-green-600 font-semibold" : v >= 1.5 ? "text-blue-600" : v > 0 ? "text-red-500" : "text-gray-400"}
-              />
-
-              {/* GMV 占比 */}
-              <DataRow
-                loading={loading}
-                category=""
-                label="GMV 占比"
-                plats={showPlats}
-                getCellVal={p => totalGMV > 0 ? ((platMap[p]?.gmv || 0) / totalGMV) * 100 : 0}
-                formatVal={v => fmt(v, "pct")}
-                total={100}
-                formatTotal={_ => "100%"}
-              />
-
-              {/* ════════════════════════════
-                  二、达人营销
-              ════════════════════════════ */}
-              <GroupHeader cols={showPlats.length + 3} color="bg-pink-50 text-pink-700">
-                二、达人营销
-              </GroupHeader>
-
-              {/* 合作达人数 */}
-              <DataRow
-                loading={loading}
-                category="达人"
-                label="合作达人数（位）"
-                plats={showPlats}
-                getCellVal={p => kolByPlat[p]?.count || 0}
-                formatVal={v => v > 0 ? String(v) : "—"}
-                total={totalKolCount}
-                formatTotal={v => String(v) || "—"}
-              />
-
-              {/* 达人投入费用 */}
-              <DataRow
-                loading={loading}
-                category=""
-                label="达人合作费（元）"
-                plats={showPlats}
-                getCellVal={p => kolByPlat[p]?.spend || 0}
-                formatVal={v => fmt(v, "money")}
-                total={totalKolSpend}
-                formatTotal={v => fmt(v, "money")}
-              />
-
-              {/* 达人带来播放 */}
-              <DataRow
-                loading={loading}
-                category=""
-                label="达人带来播放量"
-                plats={showPlats}
-                getCellVal={_ => 0}                 // 播放量无平台拆分，全放合计
-                formatVal={_ => "—"}
-                total={totalKolViews}
-                formatTotal={v => fmt(v, "num")}
-              />
-
-              {/* 平均 ROI */}
-              <DataRow
-                loading={loading}
-                category=""
-                label="达人平均 ROI"
-                plats={showPlats}
-                getCellVal={_ => 0}
-                formatVal={_ => "—"}
-                total={avgKolROI}
-                formatTotal={v => fmt(v, "roi")}
-                colorVal={v => v >= 3 ? "text-green-600 font-semibold" : v > 0 ? "text-blue-600" : "text-gray-400"}
-              />
-
-              {/* ════════════════════════════
-                  三、内容运营
-              ════════════════════════════ */}
-              <GroupHeader cols={showPlats.length + 3} color="bg-blue-50 text-blue-700">
-                三、内容运营
-              </GroupHeader>
-
-              {/* 发布内容数 */}
-              <DataRow
-                loading={loading}
-                category="内容"
-                label="发布内容数（篇）"
-                plats={showPlats}
-                getCellVal={p => contentByPlat[p]?.count || 0}
-                formatVal={v => v > 0 ? String(v) : "—"}
-                total={totalContent}
-                formatTotal={v => v > 0 ? String(v) : "—"}
-              />
-
-              {/* 播放量 */}
-              <DataRow
-                loading={loading}
-                category=""
-                label="播放 / 阅读量"
-                plats={showPlats}
-                getCellVal={p => contentByPlat[p]?.views || 0}
-                formatVal={v => fmt(v, "num")}
-                total={totalViews}
-                formatTotal={v => fmt(v, "num")}
-              />
-
-              {/* 点赞数 */}
-              <DataRow
-                loading={loading}
-                category=""
-                label="点赞数"
-                plats={showPlats}
-                getCellVal={p => contentByPlat[p]?.likes || 0}
-                formatVal={v => fmt(v, "num")}
-                total={totalLikes}
-                formatTotal={v => fmt(v, "num")}
-              />
-
+              {/* ── 合计行 ── */}
+              {!loading && dateRows.length > 0 && (
+                <tr className="bg-violet-50 border-t-2 border-violet-100">
+                  <td className="sticky left-0 z-10 bg-violet-50 py-3 px-4 text-xs font-bold text-violet-700 border-r border-violet-100 whitespace-nowrap">
+                    合计
+                  </td>
+                  {activePlats.map(p => (
+                    <td key={p} className="py-3 px-4 text-center whitespace-nowrap">
+                      <span className="text-sm font-bold text-violet-700">
+                        {colTotals[p] > 0 ? fmt(colTotals[p], isMoney) : "—"}
+                      </span>
+                    </td>
+                  ))}
+                  <td className="py-3 px-4 text-center whitespace-nowrap bg-violet-100 border-l border-violet-200">
+                    <span className="text-sm font-black text-violet-800">
+                      {grandTotal > 0 ? fmt(grandTotal, isMoney) : "—"}
+                    </span>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* ── 达人明细 & 内容明细（折叠列表）── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+      {/* ── 平台汇总卡片 ── */}
+      {!loading && (data?.byPlatform || []).length > 0 && (
+        <div className="mb-4">
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 px-1">平台销售汇总</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-2">
+            {(data?.byPlatform || []).map(p => (
+              <div key={p.platform} className="bg-white rounded-xl border border-gray-100 p-3">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: p.color }} />
+                  <span className="text-xs font-semibold text-gray-700 truncate">{p.platform}</span>
+                </div>
+                <p className="text-base font-bold text-gray-900 truncate">{fmt(p.gmv, true)}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">{fmtRaw(p.orders)} 单</p>
+                {p.refund > 0 && (
+                  <p className="text-[10px] text-red-400 mt-0.5">退 {fmt(p.refund, true)}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── 达人明细 & 内容明细 ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <KolDetail kols={data?.kols || []} loading={loading} />
         <ContentDetail content={data?.content || []} loading={loading} />
       </div>
@@ -409,78 +420,25 @@ export default function DataPage() {
 //  子组件
 // ══════════════════════════════════════════
 
-/** 分组标题行 */
-function GroupHeader({ children, cols, color }: {
-  children: React.ReactNode; cols: number; color: string;
+/** KPI 卡片 */
+function KpiCard({ label, value, sub, color, loading }: {
+  label: string; value: string; sub: string; color: string; loading: boolean;
 }) {
   return (
-    <tr>
-      <td colSpan={cols} className={cn("py-2 px-4 text-xs font-bold tracking-wide border-t border-b", color)}>
-        {children}
-      </td>
-    </tr>
-  );
-}
-
-/** 数据行 */
-function DataRow({
-  loading, category, label, plats, getCellVal, formatVal,
-  total, formatTotal, highlight, totalBold, colorVal,
-}: {
-  loading: boolean;
-  category: string;
-  label: string;
-  plats: string[];
-  getCellVal: (p: string) => number;
-  formatVal: (v: number) => string;
-  total: number;
-  formatTotal: (v: number) => string;
-  highlight?: boolean;
-  totalBold?: boolean;
-  colorVal?: (v: number) => string;
-}) {
-  return (
-    <tr className={cn("border-b border-gray-50 transition-colors hover:bg-gray-50/60",
-      highlight && "bg-violet-50/30")}>
-      {/* 分类 */}
-      <td className="sticky left-0 z-10 py-3 px-4 text-xs font-semibold text-gray-500 bg-white border-r border-gray-100 align-middle whitespace-nowrap"
-        style={{ background: highlight ? "#f5f3ff30" : "white" }}>
-        {category}
-      </td>
-      {/* 指标名 */}
-      <td className="py-3 px-4 text-xs text-gray-600 border-r border-gray-50 whitespace-nowrap">
-        {label}
-      </td>
-      {/* 各平台数据 */}
-      {plats.map(p => {
-        const v = getCellVal(p);
-        const str = loading ? "" : formatVal(v);
-        const colorCls = (!loading && colorVal) ? colorVal(v) : "";
-        return (
-          <td key={p} className="py-3 px-4 text-center whitespace-nowrap">
-            {loading ? (
-              <div className="h-4 w-12 bg-gray-100 rounded animate-pulse mx-auto" />
-            ) : (
-              <span className={cn("text-sm", colorCls || (highlight ? "font-semibold text-gray-800" : "text-gray-600"))}>
-                {str}
-              </span>
-            )}
-          </td>
-        );
-      })}
-      {/* 合计 */}
-      <td className="py-3 px-4 text-center whitespace-nowrap bg-violet-50/40 border-l border-violet-100">
-        {loading ? (
-          <div className="h-4 w-14 bg-violet-100 rounded animate-pulse mx-auto" />
-        ) : (
-          <span className={cn("text-sm",
-            totalBold ? "font-bold text-violet-700" : "font-semibold text-violet-600",
-            colorVal ? colorVal(total) : "")}>
-            {formatTotal(total)}
-          </span>
-        )}
-      </td>
-    </tr>
+    <div className="bg-white rounded-xl border border-gray-100 p-4">
+      <p className="text-xs text-gray-400 mb-1">{label}</p>
+      {loading ? (
+        <>
+          <div className="h-6 w-24 bg-gray-100 rounded animate-pulse mb-1.5" />
+          <div className="h-3.5 w-16 bg-gray-50 rounded animate-pulse" />
+        </>
+      ) : (
+        <>
+          <p className={cn("text-xl font-bold", color)}>{value}</p>
+          <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -500,7 +458,10 @@ function Selector({ value, onChange, children }: {
 }
 
 /** 达人明细列表 */
-function KolDetail({ kols, loading }: { kols: { id: string; name: string; platform: string; fans_count: number; status: string; fee: number }[]; loading: boolean }) {
+function KolDetail({ kols, loading }: {
+  kols: { id: string; name: string; platform: string; fans_count: number; status: string; fee: number }[];
+  loading: boolean;
+}) {
   const STATUS_COLOR: Record<string, string> = {
     合作中: "bg-green-100 text-green-700",
     洽谈中: "bg-blue-100 text-blue-700",
@@ -559,7 +520,10 @@ function KolDetail({ kols, loading }: { kols: { id: string; name: string; platfo
 }
 
 /** 内容明细列表 */
-function ContentDetail({ content, loading }: { content: { id: string; title: string; platform: string; publish_date: string; views: number; likes: number }[]; loading: boolean }) {
+function ContentDetail({ content, loading }: {
+  content: { id: string; title: string; platform: string; publish_date: string; views: number; likes: number }[];
+  loading: boolean;
+}) {
   return (
     <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
       <div className="px-5 py-3.5 border-b border-gray-50">

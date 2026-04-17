@@ -3,70 +3,86 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { supabase, roleLabels } from "@/lib/supabase";
+import { useEffect, useState } from "react";
 import {
-  LayoutDashboard,
-  ShoppingCart,
-  Users,
-  FileVideo,
-  Store,
-  Headphones,
-  BrainCircuit,
-  CheckSquare,
-  Swords,
-  BarChart3,
-  Settings,
-  LogOut,
-  Music2,
+  LayoutDashboard, ShoppingCart, Users, FileVideo, Store,
+  Headphones, BrainCircuit, CheckSquare, Swords, BarChart3,
+  Settings, LogOut, Music2,
 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 
 const navGroups = [
   {
     label: "核心业务",
     items: [
-      { href: "/dashboard/home", label: "工作台首页", icon: LayoutDashboard },
-      { href: "/dashboard/tasks", label: "工作任务中心", icon: CheckSquare, badge: "今日" },
-      { href: "/dashboard/sales", label: "电商销售中心", icon: ShoppingCart },
-      { href: "/dashboard/kol", label: "达人营销", icon: Users },
-      { href: "/dashboard/content", label: "内容运营", icon: FileVideo },
+      { href: "/dashboard/home",       label: "工作台首页",   icon: LayoutDashboard },
+      { href: "/dashboard/tasks",      label: "工作任务中心", icon: CheckSquare, badge: "今日" },
+      { href: "/dashboard/sales",      label: "电商销售中心", icon: ShoppingCart },
+      { href: "/dashboard/kol",        label: "达人营销",     icon: Users },
+      { href: "/dashboard/content",    label: "内容运营",     icon: FileVideo },
     ],
   },
   {
     label: "渠道 & 服务",
     items: [
-      { href: "/dashboard/channel", label: "渠道分销", icon: Store },
-      { href: "/dashboard/service", label: "客服中心", icon: Headphones },
+      { href: "/dashboard/channel",    label: "渠道分销",     icon: Store },
+      { href: "/dashboard/service",    label: "客服中心",     icon: Headphones },
       { href: "/dashboard/competitor", label: "竞品情报中心", icon: Swords },
     ],
   },
   {
     label: "数据 & 智能",
     items: [
-      { href: "/dashboard/review", label: "智能复盘中心", icon: BrainCircuit, badge: "AI" },
-      { href: "/dashboard/data", label: "数据中心", icon: BarChart3 },
+      { href: "/dashboard/review",     label: "智能复盘中心", icon: BrainCircuit, badge: "AI" },
+      { href: "/dashboard/data",       label: "数据中心",     icon: BarChart3 },
     ],
   },
   {
     label: "设置",
     items: [
-      { href: "/dashboard/settings", label: "系统设置", icon: Settings },
+      { href: "/dashboard/settings",   label: "系统设置",     icon: Settings },
     ],
   },
 ];
 
+interface UserProfile {
+  full_name: string | null;
+  role: string | null;
+}
+
 export function Sidebar() {
   const pathname = usePathname();
-  const router = useRouter();
+  const router   = useRouter();
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+
+  useEffect(() => {
+    async function loadUser() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from("profiles")
+        .select("full_name, role")
+        .eq("id", user.id)
+        .single();
+      if (data) setProfile(data);
+    }
+    loadUser();
+  }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     router.push("/login");
   };
 
+  const displayName = profile?.full_name || "用户";
+  const displayRole = roleLabels[profile?.role || ""] || profile?.role || "成员";
+  const avatarChar  = displayName[0]?.toUpperCase() || "U";
+
   return (
-    <aside className="flex flex-col w-56 bg-[#1e1b4b] text-white min-h-screen shrink-0">
+    // fixed + h-screen + overflow-y-auto 实现固定侧边栏
+    <aside className="fixed top-0 left-0 h-screen w-56 bg-[#1e1b4b] text-white flex flex-col z-40 overflow-y-auto">
       {/* Logo */}
-      <div className="px-4 py-5 border-b border-white/10">
+      <div className="px-4 py-5 border-b border-white/10 shrink-0">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-violet-500 flex items-center justify-center shrink-0">
             <Music2 size={16} className="text-white" />
@@ -79,7 +95,7 @@ export function Sidebar() {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 py-3 overflow-y-auto space-y-4">
+      <nav className="flex-1 py-3 space-y-4">
         {navGroups.map((group) => (
           <div key={group.label}>
             <div className="px-4 mb-1 text-[10px] font-semibold text-violet-400 uppercase tracking-wider">
@@ -117,20 +133,22 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* User */}
-      <div className="border-t border-white/10 p-3">
+      {/* 用户信息 + 退出 */}
+      <div className="border-t border-white/10 p-3 shrink-0">
         <button
           onClick={handleLogout}
-          className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm text-violet-300 hover:bg-white/10 hover:text-white transition-colors"
+          className="flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm text-violet-300 hover:bg-white/10 hover:text-white transition-colors group"
         >
+          {/* 头像 */}
           <div className="w-7 h-7 rounded-full bg-violet-500 flex items-center justify-center text-xs font-bold shrink-0">
-            我
+            {avatarChar}
           </div>
-          <div className="flex-1 text-left">
-            <div className="text-xs font-medium text-white">管理员</div>
-            <div className="text-[10px] text-violet-400">退出登录</div>
+          {/* 姓名 + 角色 */}
+          <div className="flex-1 text-left min-w-0">
+            <div className="text-xs font-semibold text-white truncate">{displayName}</div>
+            <div className="text-[10px] text-violet-400 truncate">{displayRole}</div>
           </div>
-          <LogOut size={14} />
+          <LogOut size={13} className="shrink-0 opacity-60 group-hover:opacity-100" />
         </button>
       </div>
     </aside>
