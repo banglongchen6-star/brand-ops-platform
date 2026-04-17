@@ -20,6 +20,8 @@ import {
   BookOpen,
   Save,
   Lock,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { supabase, roleLabels } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -83,6 +85,10 @@ export default function SettingsPage() {
   const [editForm, setEditForm] = useState<Partial<Profile>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [deleteTarget, setDeleteTarget] = useState<Profile | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [addForm, setAddForm] = useState({
     email: "",
@@ -178,6 +184,25 @@ export default function SettingsPage() {
         prev.map((p) => (p.id === profile.id ? { ...p, is_active: newVal } : p))
       );
     }
+  }
+
+  async function handleDelete(profile: Profile) {
+    setDeleteLoading(true);
+    setDeleteError(null);
+    const res = await fetch("/api/admin/delete-user", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: profile.id }),
+    });
+    const result = await res.json();
+    if (!res.ok || result.error) {
+      setDeleteError(result.error || "删除失败，请重试");
+      setDeleteLoading(false);
+      return;
+    }
+    setProfiles((prev) => prev.filter((p) => p.id !== profile.id));
+    setDeleteTarget(null);
+    setDeleteLoading(false);
   }
 
   async function handleAddMember(e: React.FormEvent) {
@@ -517,12 +542,22 @@ export default function SettingsPage() {
                           </button>
                         </>
                       ) : (
-                        <button
-                          onClick={() => startEdit(profile)}
-                          className="w-7 h-7 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center hover:bg-violet-100 hover:text-violet-600 transition"
-                        >
-                          <Pencil size={12} />
-                        </button>
+                        <>
+                          <button
+                            onClick={() => startEdit(profile)}
+                            className="w-7 h-7 rounded-lg bg-gray-100 text-gray-500 flex items-center justify-center hover:bg-violet-100 hover:text-violet-600 transition"
+                            title="编辑"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                          <button
+                            onClick={() => { setDeleteTarget(profile); setDeleteError(null); }}
+                            className="w-7 h-7 rounded-lg bg-gray-100 text-gray-400 flex items-center justify-center hover:bg-red-100 hover:text-red-600 transition"
+                            title="删除"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
@@ -823,6 +858,56 @@ export default function SettingsPage() {
                 </li>
               ))}
             </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirm Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+            <div className="p-6">
+              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-100 mx-auto mb-4">
+                <AlertTriangle size={22} className="text-red-600" />
+              </div>
+              <h3 className="text-base font-bold text-gray-900 text-center mb-1">确认删除成员？</h3>
+              <p className="text-sm text-gray-500 text-center mb-1">
+                即将删除账号：
+              </p>
+              <p className="text-sm font-semibold text-gray-800 text-center mb-1">
+                {deleteTarget.full_name || "未命名"}
+              </p>
+              <p className="text-xs text-gray-400 text-center mb-5">
+                {deleteTarget.email}
+              </p>
+              <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 mb-5">
+                <p className="text-xs text-red-600 text-center">
+                  ⚠️ 此操作<strong>不可撤销</strong>，删除后该账号将无法登录
+                </p>
+              </div>
+              {deleteError && (
+                <div className="bg-red-50 text-red-600 text-xs px-3 py-2 rounded-lg mb-4 text-center">
+                  {deleteError}
+                </div>
+              )}
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setDeleteTarget(null); setDeleteError(null); }}
+                  disabled={deleteLoading}
+                  className="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50 transition disabled:opacity-60"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => handleDelete(deleteTarget)}
+                  disabled={deleteLoading}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-medium py-2.5 rounded-xl transition flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  {deleteLoading ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
+                  确认删除
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
