@@ -331,6 +331,9 @@ export default function SettingsPage() {
     admins: profiles.filter((p) => p.role === "admin" || p.role === "manager").length,
   };
 
+  // 只有 admin 角色才能编辑他人信息
+  const isAdmin = currentUser?.role === "admin";
+
   const tabs: { key: TabKey; label: string; Icon: React.ElementType }[] = [
     { key: "team", label: "团队成员", Icon: Users },
     { key: "profile", label: "我的资料", Icon: User },
@@ -372,17 +375,26 @@ export default function SettingsPage() {
         <div className="space-y-6">
           {/* Actions row */}
           <div className="flex items-center justify-between">
-            <div />
-            <div className="flex flex-col items-end gap-1">
-              <button
-                onClick={() => setShowAddModal(true)}
-                className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition shadow-sm"
-              >
-                <Plus size={16} />
-                添加成员
-              </button>
-              <span className="text-xs text-gray-400">新成员需要通过邮件验证后才能登录</span>
-            </div>
+            {isAdmin ? (
+              <div />
+            ) : (
+              <div className="text-xs text-gray-500 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-center gap-2">
+                <Shield size={14} className="text-amber-600" />
+                仅系统管理员可编辑成员信息，您当前为只读模式
+              </div>
+            )}
+            {isAdmin && (
+              <div className="flex flex-col items-end gap-1">
+                <button
+                  onClick={() => setShowAddModal(true)}
+                  className="flex items-center gap-2 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium px-4 py-2.5 rounded-xl transition shadow-sm"
+                >
+                  <Plus size={16} />
+                  添加成员
+                </button>
+                <span className="text-xs text-gray-400">新成员需要通过邮件验证后才能登录</span>
+              </div>
+            )}
           </div>
 
           {/* Stats */}
@@ -508,12 +520,17 @@ export default function SettingsPage() {
 
                     <div className="col-span-2">
                       <button
-                        onClick={() => toggleActive(profile)}
+                        onClick={() => isAdmin && toggleActive(profile)}
+                        disabled={!isAdmin}
                         className={cn(
                           "inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full transition",
                           profile.is_active === false
-                            ? "bg-gray-100 text-gray-500 hover:bg-red-50 hover:text-red-500"
-                            : "bg-green-50 text-green-600 hover:bg-red-50 hover:text-red-500"
+                            ? "bg-gray-100 text-gray-500"
+                            : "bg-green-50 text-green-600",
+                          isAdmin && (profile.is_active === false
+                            ? "hover:bg-red-50 hover:text-red-500 cursor-pointer"
+                            : "hover:bg-red-50 hover:text-red-500 cursor-pointer"),
+                          !isAdmin && "cursor-not-allowed opacity-70"
                         )}
                       >
                         <span className={cn(
@@ -547,7 +564,7 @@ export default function SettingsPage() {
                             <X size={12} />
                           </button>
                         </>
-                      ) : (
+                      ) : isAdmin ? (
                         <>
                           <button
                             onClick={() => startEdit(profile)}
@@ -564,6 +581,8 @@ export default function SettingsPage() {
                             <Trash2 size={12} />
                           </button>
                         </>
+                      ) : (
+                        <span className="text-xs text-gray-300">—</span>
                       )}
                     </div>
                   </div>
