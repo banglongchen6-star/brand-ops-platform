@@ -181,11 +181,21 @@ export default function DataPage() {
     });
     // 汇总行
     [
-      ["电商销售小计", dKeys.map(dk=>daySum[dk]?.gmv||0), gGmv],
-      ["退货合计",     dKeys.map(dk=>daySum[dk]?.refund||0), gRefund],
-      ["推广费合计",   dKeys.map(dk=>daySum[dk]?.adSpend||0), gAd],
-      ["综合ROI",      dKeys.map(dk=>{ const s=daySum[dk]; return s?.adSpend>0 ? parseFloat((s.gmv/s.adSpend).toFixed(2)) : 0; }), parseFloat(gRoi.toFixed(2))],
-      ["实际销售(减退货)", dKeys.map(dk=>{ const s=daySum[dk]; return (s?.gmv||0)-(s?.refund||0); }), gActual],
+      ...([
+        {label:"天猫店铺",dbKey:"天猫"},{label:"京东店铺",dbKey:"京东"},{label:"抖音店铺",dbKey:"抖音"},
+        {label:"拼多多店铺",dbKey:"拼多多"},{label:"小红书店铺",dbKey:"小红书"},{label:"视频号快手",dbKey:"视频号"},{label:"其他店铺",dbKey:"其他"},
+      ].flatMap(({label,dbKey})=>{
+        const gv=dKeys.reduce((s,dk)=>s+(pd[dbKey]?.[dk]?.gmv||0),0);
+        const ga=dKeys.reduce((s,dk)=>s+(pd[dbKey]?.[dk]?.adSpend||0),0);
+        const grf=dKeys.reduce((s,dk)=>s+(pd[dbKey]?.[dk]?.refund||0),0);
+        return [
+          [`${label}-销售额`, dKeys.map(dk=>pd[dbKey]?.[dk]?.gmv||0), gv],
+          [`${label}-退货额`, dKeys.map(dk=>pd[dbKey]?.[dk]?.refund||0), grf],
+          [`${label}-推广费`, dKeys.map(dk=>pd[dbKey]?.[dk]?.adSpend||0), ga],
+          [`${label}-ROI`,    dKeys.map(dk=>{ const m=pd[dbKey]?.[dk]; return m?.adSpend>0?parseFloat((m.gmv/m.adSpend).toFixed(2)):0; }), ga>0?parseFloat((gv/ga).toFixed(2)):0],
+          [`${label}-实际销售`, dKeys.map(dk=>{ const m=pd[dbKey]?.[dk]; return (m?.gmv||0)-(m?.refund||0); }), gv-grf],
+        ];
+      })),
     ].forEach(([lb, vals, tot]) => {
       aoa.push(["汇总", lb as string, ...(vals as number[]), tot as number]);
     });
@@ -436,15 +446,28 @@ export default function DataPage() {
                 });
               })}
 
-              {/* ── 汇总区 ── */}
-              <SummRow label="电商销售小计" sub="销售额"  dKeys={dKeys} vals={dk=>daySum[dk]?.gmv||0}    tot={gGmv}    fmt={money} type="orange" month={month} year={year} mi={monthInt} />
-              <SummRow label="推广费合计"   sub="推广费"  dKeys={dKeys} vals={dk=>daySum[dk]?.adSpend||0} tot={gAd}     fmt={money} type="violet" month={month} year={year} mi={monthInt} />
-              <SummRow label="综合ROI"      sub="ROI"     dKeys={dKeys}
-                vals={dk=>{ const s=daySum[dk]; return s?.adSpend>0 ? s.gmv/s.adSpend : 0; }}
-                tot={gRoi} fmt={roi} type="blue" month={month} year={year} mi={monthInt} />
-              <SummRow label="实际销售额"   sub="减退货"  dKeys={dKeys}
-                vals={dk=>{ const s=daySum[dk]; return (s?.gmv||0)-(s?.refund||0); }}
-                tot={gActual} fmt={money} type="emerald" month={month} year={year} mi={monthInt} last />
+              {/* ── 各平台汇总区 ── */}
+              {([
+                { label:"天猫店铺",  dbKey:"天猫",   bg:"bg-orange-50/70",  tc:"text-orange-800" },
+                { label:"京东店铺",  dbKey:"京东",   bg:"bg-red-50/70",     tc:"text-red-800"    },
+                { label:"抖音店铺",  dbKey:"抖音",   bg:"bg-pink-50/70",    tc:"text-pink-800"   },
+                { label:"拼多多店铺",dbKey:"拼多多", bg:"bg-amber-50/70",   tc:"text-amber-800"  },
+                { label:"小红书店铺",dbKey:"小红书", bg:"bg-rose-50/70",    tc:"text-rose-800"   },
+                { label:"视频号快手",dbKey:"视频号", bg:"bg-green-50/70",   tc:"text-green-800"  },
+                { label:"其他店铺",  dbKey:"其他",   bg:"bg-slate-50/70",   tc:"text-slate-700"  },
+              ] as const).flatMap(({ label, dbKey, bg: pbg, tc: ptc }, pi, arr) => {
+                const isLast = pi === arr.length - 1;
+                const gv = dKeys.reduce((s,dk)=>s+(pd[dbKey]?.[dk]?.gmv||0),0);
+                const ga = dKeys.reduce((s,dk)=>s+(pd[dbKey]?.[dk]?.adSpend||0),0);
+                const gr = ga>0 ? gv/ga : 0;
+                const gn = gv - dKeys.reduce((s,dk)=>s+(pd[dbKey]?.[dk]?.refund||0),0);
+                return [
+                  <SummRow key={`${dbKey}-gmv`}     label={label} sub="销售额" dKeys={dKeys} vals={dk=>pd[dbKey]?.[dk]?.gmv||0}     tot={gv} fmt={money} bg={pbg} tc={ptc} month={month} year={year} mi={monthInt} showPlatCell platRowSpan={4} />,
+                  <SummRow key={`${dbKey}-adspend`} label={label} sub="推广费" dKeys={dKeys} vals={dk=>pd[dbKey]?.[dk]?.adSpend||0}  tot={ga} fmt={money} bg={pbg} tc={ptc} month={month} year={year} mi={monthInt} />,
+                  <SummRow key={`${dbKey}-roi`}     label={label} sub="ROI"    dKeys={dKeys} vals={dk=>{ const m=pd[dbKey]?.[dk]; return m?.adSpend>0?m.gmv/m.adSpend:0; }} tot={gr} fmt={roi}   bg={pbg} tc={ptc} month={month} year={year} mi={monthInt} />,
+                  <SummRow key={`${dbKey}-net`}     label={label} sub="减退货" dKeys={dKeys} vals={dk=>{ const m=pd[dbKey]?.[dk]; return (m?.gmv||0)-(m?.refund||0); }}     tot={gn} fmt={money} bg={pbg} tc={ptc} month={month} year={year} mi={monthInt} last={isLast} />,
+                ];
+              })}
 
             </tbody>
           </table>
@@ -465,24 +488,30 @@ export default function DataPage() {
 //  汇总行
 // ══════════════════════════════════════════════════════════
 function SummRow({
-  label, sub, dKeys, vals, tot, fmt: fmtFn, type, month, year, mi, last
+  label, sub, dKeys, vals, tot, fmt: fmtFn, bg, tc, month, year, mi, last,
+  showPlatCell, platRowSpan,
 }: {
   label: string; sub: string;
   dKeys: string[]; vals: (k: string) => number;
   tot: number; fmt: (n: number) => string;
-  type: "orange"|"violet"|"blue"|"emerald";
+  bg: string; tc: string;
   month: string; year: number; mi: number;
   last?: boolean;
+  showPlatCell?: boolean;
+  platRowSpan?: number;
 }) {
-  const bg  = { orange:"bg-orange-50/70", violet:"bg-violet-50/70", blue:"bg-blue-50/70", emerald:"bg-emerald-50/80" }[type];
-  const tc  = { orange:"text-orange-800", violet:"text-violet-800", blue:"text-blue-700",  emerald:"text-emerald-800" }[type];
   const bdr = last ? "border-b-2 border-gray-400" : "border-b border-gray-100";
   return (
     <tr className={cn(bg, bdr)}>
-      <td className={cn("sticky left-0 z-10 border-r border-gray-200 py-2.5 px-3 font-black whitespace-nowrap", bg, tc, last && "border-b-2 border-gray-400")}
-        style={{ width: COL_PLAT }}>
-        {label}
-      </td>
+      {showPlatCell && (
+        <td
+          rowSpan={platRowSpan ?? 1}
+          className={cn("sticky left-0 z-10 border-r border-gray-200 py-2.5 px-3 font-black whitespace-nowrap text-center align-middle", bg, tc)}
+          style={{ width: COL_PLAT }}
+        >
+          {label}
+        </td>
+      )}
       <td className={cn("sticky z-10 border-r border-gray-200 py-2.5 px-3 whitespace-nowrap font-semibold", bg, tc, last && "border-b-2 border-gray-400")}
         style={{ left: COL_PLAT, width: COL_METRIC }}>
         {sub}
