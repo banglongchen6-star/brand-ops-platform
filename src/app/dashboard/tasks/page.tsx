@@ -223,7 +223,7 @@ const PRIORITY_LABELS: Record<string, string> = {
   low: "低",
 };
 
-type ViewTab = "my_owned" | "team" | "my_created" | "my_assisted";
+type ViewTab = "my_owned" | "team" | "my_created";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -388,19 +388,14 @@ export default function TasksPage() {
     if (activeTab === "team") return true; // 团队任务：显示全部（无需登录过滤）
     if (!currentUserId) return false; // 当前用户未加载完成时，个人Tab不显示任何任务
     if (activeTab === "my_owned") {
-      // 我的任务：我是主负责人，或我是该任务的协作人（collaborator）
+      // 我的任务/协助：我是主负责人、协作人 或 协助人
       if (t.owner_id === currentUserId || t.assigned_to === currentUserId) return true;
       const ps = participantsByTask[t.id] || [];
-      return ps.some((p) => p.user_id === currentUserId && p.role === "collaborator");
+      return ps.some((p) => p.user_id === currentUserId);
     }
     if (activeTab === "my_created") {
       // 我创建的：creator_id 是我
       return t.creator_id === currentUserId;
-    }
-    if (activeTab === "my_assisted") {
-      // 我协助的：我是该任务的协助人（assistant）
-      const ps = participantsByTask[t.id] || [];
-      return ps.some((p) => p.user_id === currentUserId && p.role === "assistant");
     }
     return true;
   });
@@ -669,10 +664,9 @@ export default function TasksPage() {
       <div className="flex items-center gap-1 bg-white border border-gray-100 rounded-xl p-1 shadow-sm w-fit">
         {(
           [
-            { key: "my_owned", label: "我的任务" },
+            { key: "my_owned", label: "我的任务/协助" },
             { key: "team", label: "团队任务" },
             { key: "my_created", label: "我创建的" },
-            { key: "my_assisted", label: "我协助的" },
           ] as { key: ViewTab; label: string }[]
         ).map((tab) => (
           <button
