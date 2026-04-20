@@ -51,6 +51,8 @@ import {
   Ban,
   ChevronRight,
   User,
+  Users,
+  UserPlus,
   Tag,
   BarChart2,
   Info,
@@ -90,6 +92,16 @@ interface Profile {
   email: string;
 }
 
+interface Participant {
+  id?: string;
+  task_id?: string;
+  user_id: string;
+  role: "collaborator" | "assistant";
+  assist_content?: string | null;
+  assist_deadline?: string | null;
+  assist_done?: boolean | null;
+}
+
 interface ParsedTask {
   title: string;
   description: string | null;
@@ -119,10 +131,8 @@ const moduleLabels: Record<string, string> = Object.fromEntries(
 
 const taskTypeOptions = [
   { value: "normal", label: "普通任务" },
-  { value: "assigned", label: "指派任务" },
-  { value: "collaborative", label: "协作任务" },
-  { value: "approval", label: "审批任务" },
-  { value: "review_fix", label: "复盘整改" },
+  { value: "team", label: "团队任务" },
+  { value: "assist", label: "协助任务" },
 ];
 
 const taskTypeLabels: Record<string, string> = Object.fromEntries(
@@ -268,6 +278,8 @@ export default function TasksPage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
+  // 按任务 id 分组存放协作人/协助人
+  const [participantsByTask, setParticipantsByTask] = useState<Record<string, Participant[]>>({});
 
   // ── View / filter state ──
   const [activeTab, setActiveTab] = useState<ViewTab>("my_owned");
@@ -291,7 +303,6 @@ export default function TasksPage() {
     acceptance_criteria: "",
     module: "ecommerce",
     assigned_to: "",
-    reviewer_id: "",
     task_type: "normal",
     source_type: "manual",
     priority: "medium",
@@ -299,6 +310,11 @@ export default function TasksPage() {
     progress_percent: 0,
     blocked_reason: "",
   });
+  // 协作人（团队任务） / 协助人（协助任务）
+  const [formCollaborators, setFormCollaborators] = useState<string[]>([]);
+  const [formAssistants, setFormAssistants] = useState<
+    { user_id: string; assist_content: string; assist_deadline: string }[]
+  >([]);
 
   // ── AI Import state ──
   const [showImport, setShowImport] = useState(false);
@@ -326,6 +342,21 @@ export default function TasksPage() {
     setLoading(false);
   }, []);
 
+  const fetchParticipants = useCallback(async () => {
+    const { data, error } = await supabase.from("task_participants").select("*");
+    if (error) {
+      console.error("fetchParticipants error:", error.message);
+      return;
+    }
+    const grouped: Record<string, Participant[]> = {};
+    (data || []).forEach((p: Participant) => {
+      if (!p.task_id) return;
+      if (!grouped[p.task_id]) grouped[p.task_id] = [];
+      grouped[p.task_id].push(p);
+    });
+    setParticipantsByTask(grouped);
+  }, []);
+
   const fetchProfiles = useCallback(async () => {
     const { data, error } = await supabase
       .from("profiles")
@@ -342,7 +373,14 @@ export default function TasksPage() {
     });
     fetchTasks();
     fetchProfiles();
-  }, [fetchTasks, fetchProfiles]);
+    fetchParticipants();
+  }, [fetchTasks, fetchProfiles, fetchParticipants]);
+
+  // 切换任务类型时清空上一个类型残留的协作/协助配置
+  useEffect(() => {
+    setFormCollaborators([]);
+    setFormAssistants([]);
+  }, [form.task_type]);
 
   // ─── Filtering ─────────────────────────────────────────────────────────────
 
@@ -350,16 +388,19 @@ export default function TasksPage() {
     if (activeTab === "team") return true; // 团队任务：显示全部（无需登录过滤）
     if (!currentUserId) return false; // 当前用户未加载完成时，个人Tab不显示任何任务
     if (activeTab === "my_owned") {
-      // 我的任务：负责人是我（兼容 owner_id 和旧的 assigned_to）
-      return t.owner_id === currentUserId || t.assigned_to === currentUserId;
+      // 我的任务：我是主负责人，或我是该任务的协作人（collaborator）
+      if (t.owner_id === currentUserId || t.assigned_to === currentUserId) return true;
+      const ps = participantsByTask[t.id] || [];
+      return ps.some((p) => p.user_id === currentUserId && p.role === "collaborator");
     }
     if (activeTab === "my_created") {
       // 我创建的：creator_id 是我
       return t.creator_id === currentUserId;
     }
     if (activeTab === "my_assisted") {
-      // 我协助的：被分配给我，但我不是 owner
-      return t.assigned_to === currentUserId && t.owner_id !== currentUserId && t.owner_id != null;
+      // 我协助的：我是该任务的协助人（assistant）
+      const ps = participantsByTask[t.id] || [];
+      return ps.some((p) => p.user_id === currentUserId && p.role === "assistant");
     }
     return true;
   });
@@ -407,6 +448,32 @@ export default function TasksPage() {
     setSubmitting(true);
     setFormError(null);
 
+    // 校验：协助任务的协助内容必填
+    if (form.task_type === "assist") {
+      if (formAssistants.length === 0) {
+        setFormError("协助任务至少需要添加 1 位协助人");
+        setSubmitting(false);
+        return;
+      }
+      for (const a of formAssistants) {
+        if (!a.user_id) {
+          setFormError("请为每个协助行选择协助人");
+          setSubmitting(false);
+          return;
+        }
+        if (!a.assist_content.trim()) {
+          setFormError("协助内容为必填");
+          setSubmitting(false);
+          return;
+        }
+      }
+    }
+    if (form.task_type === "team" && formCollaborators.length === 0) {
+      setFormError("团队任务至少需要选择 1 位协作人");
+      setSubmitting(false);
+      return;
+    }
+
     const payload: Record<string, unknown> = {
       title: form.title,
       description: form.description || null,
@@ -415,48 +482,58 @@ export default function TasksPage() {
       priority: form.priority,
       status: "todo",
       due_date: form.due_date || null,
+      owner_id: form.assigned_to || null,
+      creator_id: currentUserId,
+      task_type: form.task_type,
+      source_type: form.source_type,
+      acceptance_criteria: form.acceptance_criteria || null,
+      progress_percent: form.progress_percent,
+      blocked_reason: form.blocked_reason || null,
     };
 
-    // New fields — added defensively
-    try {
-      payload.owner_id = form.assigned_to || null;
-      payload.creator_id = currentUserId;
-      payload.task_type = form.task_type;
-      payload.source_type = form.source_type;
-      payload.acceptance_criteria = form.acceptance_criteria || null;
-      payload.progress_percent = form.progress_percent;
-      payload.blocked_reason = form.blocked_reason || null;
-      payload.reviewer_id = form.reviewer_id || null;
-    } catch {
-      // ignore if columns don't exist yet
+    const { data: inserted, error } = await supabase
+      .from("tasks")
+      .insert(payload)
+      .select("id")
+      .single();
+
+    if (error || !inserted) {
+      setFormError(error?.message || "创建任务失败");
+      setSubmitting(false);
+      return;
     }
 
-    const { error } = await supabase.from("tasks").insert(payload);
-    if (error) {
-      // If error is about unknown columns, retry with minimal payload
-      if (error.message.includes("column")) {
-        const minPayload = {
-          title: form.title,
-          description: form.description || null,
-          module: form.module,
-          assigned_to: form.assigned_to || null,
-          priority: form.priority,
-          status: "todo",
-          due_date: form.due_date || null,
-        };
-        const { error: err2 } = await supabase.from("tasks").insert(minPayload);
-        if (err2) setFormError(err2.message);
-        else {
-          closeModal();
-          fetchTasks();
-        }
-      } else {
-        setFormError(error.message);
-      }
-    } else {
-      closeModal();
-      fetchTasks();
+    // 写入 task_participants
+    const pRows: Record<string, unknown>[] = [];
+    if (form.task_type === "team") {
+      formCollaborators.forEach((uid) => {
+        pRows.push({ task_id: inserted.id, user_id: uid, role: "collaborator" });
+      });
+    } else if (form.task_type === "assist") {
+      formAssistants.forEach((a) => {
+        pRows.push({
+          task_id: inserted.id,
+          user_id: a.user_id,
+          role: "assistant",
+          assist_content: a.assist_content,
+          assist_deadline: a.assist_deadline || null,
+          assist_done: false,
+        });
+      });
     }
+    if (pRows.length > 0) {
+      const { error: pErr } = await supabase.from("task_participants").insert(pRows);
+      if (pErr) {
+        setFormError("任务已创建，但参与人写入失败: " + pErr.message);
+        setSubmitting(false);
+        fetchTasks();
+        return;
+      }
+    }
+
+    closeModal();
+    fetchTasks();
+    fetchParticipants();
     setSubmitting(false);
   }
 
@@ -469,7 +546,6 @@ export default function TasksPage() {
       acceptance_criteria: "",
       module: "ecommerce",
       assigned_to: "",
-      reviewer_id: "",
       task_type: "normal",
       source_type: "manual",
       priority: "medium",
@@ -477,6 +553,8 @@ export default function TasksPage() {
       progress_percent: 0,
       blocked_reason: "",
     });
+    setFormCollaborators([]);
+    setFormAssistants([]);
   }
 
   // ── AI Parse ──
@@ -908,6 +986,28 @@ export default function TasksPage() {
                       <span className="text-xs text-gray-500">
                         {taskTypeLabels[task.task_type ?? "normal"] ?? task.task_type ?? "普通"}
                       </span>
+                      {(() => {
+                        const ps = participantsByTask[task.id] || [];
+                        if (ps.length === 0) return null;
+                        const isAssist = task.task_type === "assist";
+                        return (
+                          <div
+                            className={cn(
+                              "mt-0.5 inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full",
+                              isAssist
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-blue-50 text-blue-700"
+                            )}
+                            title={ps
+                              .map((p) => profiles.find((x) => x.id === p.user_id)?.full_name)
+                              .filter(Boolean)
+                              .join("、")}
+                          >
+                            {isAssist ? <UserPlus size={9} /> : <Users size={9} />}
+                            {ps.length}人
+                          </div>
+                        );
+                      })()}
                     </div>
 
                     {/* Module */}
@@ -1114,6 +1214,89 @@ export default function TasksPage() {
                     </div>
                   )}
 
+                  {/* 协作人 / 协助人 */}
+                  {(() => {
+                    const ps = participantsByTask[selectedTask.id] || [];
+                    if (ps.length === 0) return null;
+                    const collabs = ps.filter((p) => p.role === "collaborator");
+                    const assists = ps.filter((p) => p.role === "assistant");
+                    return (
+                      <>
+                        {collabs.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
+                              <Users size={12} />
+                              协作人（{collabs.length}）
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {collabs.map((c) => {
+                                const name =
+                                  profiles.find((p) => p.id === c.user_id)?.full_name || "未知";
+                                return (
+                                  <span
+                                    key={c.id || c.user_id}
+                                    className="text-xs bg-blue-50 text-blue-700 border border-blue-100 px-2.5 py-1 rounded-full"
+                                  >
+                                    {name}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                        {assists.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
+                              <UserPlus size={12} />
+                              协助人（{assists.length}）
+                            </div>
+                            <div className="space-y-2">
+                              {assists.map((a) => {
+                                const name =
+                                  profiles.find((p) => p.id === a.user_id)?.full_name || "未知";
+                                return (
+                                  <div
+                                    key={a.id || a.user_id}
+                                    className="border border-gray-100 rounded-xl px-3 py-2.5 bg-gray-50/50"
+                                  >
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="text-sm font-medium text-gray-800">
+                                        {name}
+                                      </span>
+                                      <div className="flex items-center gap-2">
+                                        {a.assist_deadline && (
+                                          <span className="text-xs text-gray-500 flex items-center gap-1">
+                                            <Calendar size={11} />
+                                            {a.assist_deadline}
+                                          </span>
+                                        )}
+                                        <span
+                                          className={cn(
+                                            "text-xs px-2 py-0.5 rounded-full",
+                                            a.assist_done
+                                              ? "bg-green-100 text-green-700"
+                                              : "bg-gray-100 text-gray-500"
+                                          )}
+                                        >
+                                          {a.assist_done ? "已完成" : "待处理"}
+                                        </span>
+                                      </div>
+                                    </div>
+                                    {a.assist_content && (
+                                      <p className="text-xs text-gray-600 whitespace-pre-wrap">
+                                        {a.assist_content}
+                                      </p>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+
                   {/* Progress */}
                   <div>
                     <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
@@ -1158,13 +1341,6 @@ export default function TasksPage() {
                       label: "主负责人",
                       value: getOwnerName(selectedTask, profiles),
                       icon: <User size={12} />,
-                    },
-                    {
-                      label: "审核人",
-                      value: selectedTask.reviewer_id
-                        ? profiles.find((p) => p.id === selectedTask.reviewer_id)?.full_name ?? "—"
-                        : "—",
-                      icon: <CheckSquare size={12} />,
                     },
                     {
                       label: "截止日期",
@@ -1618,47 +1794,148 @@ export default function TasksPage() {
                 </div>
               </div>
 
-              {/* Reviewer */}
-              <div className="grid grid-cols-2 gap-3">
+              {/* Due date */}
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                  截止日期 <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="date"
+                  value={form.due_date}
+                  onChange={(e) =>
+                    setForm({ ...form, due_date: e.target.value })
+                  }
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                />
+              </div>
+
+              {/* ── 团队任务：协作人多选 ── */}
+              {form.task_type === "team" && (
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                    审核人
-                    {form.task_type === "approval" && (
-                      <span className="text-red-500 ml-0.5">*</span>
-                    )}
+                    <Users size={12} className="inline mr-1" />
+                    协作人 <span className="text-red-500">*</span>
+                    <span className="ml-1 text-gray-400">（可多选，与主负责人一起完成任务）</span>
                   </label>
-                  <div className="relative">
-                    <select
-                      value={form.reviewer_id}
-                      onChange={(e) =>
-                        setForm({ ...form, reviewer_id: e.target.value })
-                      }
-                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 appearance-none"
-                    >
-                      <option value="">不指定</option>
-                      {profiles.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.full_name || p.email}
-                        </option>
+                  <div className="border border-gray-200 rounded-xl p-3 max-h-48 overflow-y-auto space-y-1.5 bg-gray-50/40">
+                    {profiles
+                      .filter((p) => p.id !== form.assigned_to)
+                      .map((p) => (
+                        <label
+                          key={p.id}
+                          className="flex items-center gap-2 text-sm cursor-pointer hover:bg-white rounded-lg px-2 py-1 transition"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={formCollaborators.includes(p.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setFormCollaborators([...formCollaborators, p.id]);
+                              } else {
+                                setFormCollaborators(
+                                  formCollaborators.filter((id) => id !== p.id)
+                                );
+                              }
+                            }}
+                            className="accent-violet-600"
+                          />
+                          <span className="text-gray-700">{p.full_name || p.email}</span>
+                        </label>
                       ))}
-                    </select>
-                    <ChevronDown size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                    {profiles.filter((p) => p.id !== form.assigned_to).length === 0 && (
+                      <p className="text-xs text-gray-400 py-2">暂无可选成员</p>
+                    )}
+                  </div>
+                  {formCollaborators.length > 0 && (
+                    <p className="text-xs text-violet-600 mt-1.5">
+                      已选 {formCollaborators.length} 位协作人
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* ── 协助任务：协助人列表 ── */}
+              {form.task_type === "assist" && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1.5">
+                    <UserPlus size={12} className="inline mr-1" />
+                    协助人 <span className="text-red-500">*</span>
+                    <span className="ml-1 text-gray-400">（每位协助人需说明协助内容）</span>
+                  </label>
+                  <div className="space-y-2">
+                    {formAssistants.map((a, idx) => (
+                      <div
+                        key={idx}
+                        className="border border-gray-200 rounded-xl p-3 bg-gray-50/40 space-y-2"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-400 shrink-0">#{idx + 1}</span>
+                          <select
+                            value={a.user_id}
+                            onChange={(e) => {
+                              const next = [...formAssistants];
+                              next[idx] = { ...next[idx], user_id: e.target.value };
+                              setFormAssistants(next);
+                            }}
+                            className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:border-violet-400 bg-white"
+                          >
+                            <option value="">请选择协助人</option>
+                            {profiles
+                              .filter((p) => p.id !== form.assigned_to)
+                              .map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.full_name || p.email}
+                                </option>
+                              ))}
+                          </select>
+                          <input
+                            type="date"
+                            value={a.assist_deadline}
+                            onChange={(e) => {
+                              const next = [...formAssistants];
+                              next[idx] = { ...next[idx], assist_deadline: e.target.value };
+                              setFormAssistants(next);
+                            }}
+                            className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:border-violet-400 bg-white"
+                          />
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFormAssistants(formAssistants.filter((_, i) => i !== idx))
+                            }
+                            className="w-7 h-7 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 flex items-center justify-center transition shrink-0"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                        <textarea
+                          value={a.assist_content}
+                          onChange={(e) => {
+                            const next = [...formAssistants];
+                            next[idx] = { ...next[idx], assist_content: e.target.value };
+                            setFormAssistants(next);
+                          }}
+                          placeholder="协助内容（必填）：请说明该协助人需要完成的具体事项"
+                          rows={2}
+                          className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 outline-none focus:border-violet-400 resize-none bg-white"
+                        />
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFormAssistants([
+                          ...formAssistants,
+                          { user_id: "", assist_content: "", assist_deadline: "" },
+                        ])
+                      }
+                      className="w-full text-xs text-violet-600 border border-dashed border-violet-300 hover:bg-violet-50 rounded-xl py-2 transition flex items-center justify-center gap-1"
+                    >
+                      <Plus size={12} /> 添加协助人
+                    </button>
                   </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-600 mb-1.5">
-                    截止日期 <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={form.due_date}
-                    onChange={(e) =>
-                      setForm({ ...form, due_date: e.target.value })
-                    }
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
-                  />
-                </div>
-              </div>
+              )}
 
               {/* Priority */}
               <div>
@@ -1761,13 +2038,6 @@ export default function TasksPage() {
                 </div>
               )}
 
-              {/* Hint for collaborative */}
-              {form.task_type === "collaborative" && (
-                <div className="bg-blue-50 border border-blue-100 text-blue-700 text-xs px-3 py-2.5 rounded-xl flex items-start gap-2">
-                  <Info size={13} className="shrink-0 mt-0.5" />
-                  协作任务建议在创建后于任务详情中添加协助人。
-                </div>
-              )}
             </form>
 
             {/* Footer */}
