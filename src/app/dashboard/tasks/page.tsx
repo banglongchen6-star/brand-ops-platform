@@ -202,14 +202,12 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
 };
 
 const PRIORITY_STYLES: Record<string, string> = {
-  urgent_important: "bg-red-50 text-red-700 border border-red-200",
-  high: "bg-red-50 text-red-600 border border-red-200",
+  high: "bg-red-50 text-red-700 border border-red-200",
   medium: "bg-yellow-50 text-yellow-600 border border-yellow-200",
   low: "bg-gray-50 text-gray-500 border border-gray-200",
 };
 
 const PRIORITY_LABELS: Record<string, string> = {
-  urgent_important: "紧急重要",
   high: "高",
   medium: "中",
   low: "低",
@@ -356,8 +354,8 @@ export default function TasksPage() {
       return t.owner_id === currentUserId || t.assigned_to === currentUserId;
     }
     if (activeTab === "my_created") {
-      // 我创建的：creator_id 是我，或 assigned_to 是我（新建时默认填的是负责人）
-      return t.creator_id === currentUserId || t.assigned_to === currentUserId;
+      // 我创建的：creator_id 是我
+      return t.creator_id === currentUserId;
     }
     if (activeTab === "my_assisted") {
       // 我协助的：assigned_to 不是我但与我有关联（暂用 owner_id 不是自己但 assigned_to 是自己）
@@ -422,6 +420,7 @@ export default function TasksPage() {
     // New fields — added defensively
     try {
       payload.owner_id = form.assigned_to || null;
+      payload.creator_id = currentUserId;
       payload.task_type = form.task_type;
       payload.source_type = form.source_type;
       payload.acceptance_criteria = form.acceptance_criteria || null;
@@ -736,7 +735,6 @@ export default function TasksPage() {
                 className="text-xs border border-gray-200 rounded-lg pl-2.5 pr-7 py-1.5 outline-none focus:border-violet-400 appearance-none bg-white"
               >
                 <option value="all">全部</option>
-                <option value="urgent_important">紧急重要</option>
                 <option value="high">高</option>
                 <option value="medium">中</option>
                 <option value="low">低</option>
@@ -1669,10 +1667,9 @@ export default function TasksPage() {
                 </label>
                 <div className="flex gap-2">
                   {[
-                    { value: "urgent_important", label: "紧急重要", cls: "border-red-400 bg-red-50 text-red-700" },
-                    { value: "high", label: "高", cls: "border-red-300 bg-red-50 text-red-600" },
+                    { value: "high",   label: "高", cls: "border-red-300 bg-red-50 text-red-600" },
                     { value: "medium", label: "中", cls: "border-yellow-300 bg-yellow-50 text-yellow-600" },
-                    { value: "low", label: "低", cls: "border-gray-300 bg-gray-50 text-gray-500" },
+                    { value: "low",    label: "低", cls: "border-gray-300 bg-gray-50 text-gray-500" },
                   ].map((p) => (
                     <button
                       type="button"
