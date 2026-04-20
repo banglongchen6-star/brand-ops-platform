@@ -347,8 +347,8 @@ export default function TasksPage() {
   // ─── Filtering ─────────────────────────────────────────────────────────────
 
   const tabFiltered = tasks.filter((t) => {
-    if (!currentUserId) return true; // 未登录时显示全部
-    if (activeTab === "team") return true; // 团队任务：显示全部
+    if (activeTab === "team") return true; // 团队任务：显示全部（无需登录过滤）
+    if (!currentUserId) return false; // 当前用户未加载完成时，个人Tab不显示任何任务
     if (activeTab === "my_owned") {
       // 我的任务：负责人是我（兼容 owner_id 和旧的 assigned_to）
       return t.owner_id === currentUserId || t.assigned_to === currentUserId;
@@ -358,7 +358,7 @@ export default function TasksPage() {
       return t.creator_id === currentUserId;
     }
     if (activeTab === "my_assisted") {
-      // 我协助的：assigned_to 不是我但与我有关联（暂用 owner_id 不是自己但 assigned_to 是自己）
+      // 我协助的：被分配给我，但我不是 owner
       return t.assigned_to === currentUserId && t.owner_id !== currentUserId && t.owner_id != null;
     }
     return true;
