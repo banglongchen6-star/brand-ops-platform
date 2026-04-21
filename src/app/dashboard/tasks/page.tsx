@@ -121,8 +121,6 @@ const moduleOptions = [
   { value: "content", label: "内容运营" },
   { value: "channel", label: "渠道分销" },
   { value: "service", label: "客服中心" },
-  { value: "review", label: "智能复盘" },
-  { value: "other", label: "其他" },
 ];
 
 const moduleLabels: Record<string, string> = Object.fromEntries(
