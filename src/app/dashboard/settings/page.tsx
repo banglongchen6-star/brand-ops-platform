@@ -872,7 +872,7 @@ export default function SettingsPage() {
             <ul className="space-y-2.5">
               {[
                 "建议团队每天录入当日各平台销售数据",
-                "每周使用智能复盘中心生成周报",
+                "每周使用AI复盘中心生成周报",
                 "如遇问题联系管理员重置密码",
               ].map((tip, i) => (
                 <li key={i} className="flex items-start gap-2.5 text-sm text-gray-600">

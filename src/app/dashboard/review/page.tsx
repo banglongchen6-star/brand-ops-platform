@@ -465,7 +465,7 @@ export default function ReviewPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">智能复盘中心</h1>
+          <h1 className="text-2xl font-bold text-gray-900">AI复盘中心</h1>
           <p className="text-sm text-gray-500 mt-1">AI 自动生成经营报告，识别风险与机会</p>
         </div>
         <div className="flex items-center gap-2 text-xs text-violet-500 bg-violet-50 px-3 py-1.5 rounded-full">

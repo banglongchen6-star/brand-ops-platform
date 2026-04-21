@@ -199,7 +199,7 @@ export default function SalesPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <ShoppingCart size={24} className="text-violet-600" />
-            电商销售中心
+            电商销售
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">多平台销售数据录入与统计分析</p>
         </div>

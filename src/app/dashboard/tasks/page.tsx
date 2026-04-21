@@ -638,7 +638,7 @@ export default function TasksPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <CheckSquare size={24} className="text-violet-600" />
-            工作任务中心
+            任务中心
           </h1>
           <p className="text-sm text-gray-500 mt-0.5">跟踪和管理全团队的工作任务</p>
         </div>

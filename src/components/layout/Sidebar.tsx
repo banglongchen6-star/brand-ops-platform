@@ -15,32 +15,27 @@ const navGroups = [
   {
     label: "核心业务",
     items: [
-      { href: "/dashboard/home",       label: "工作台首页",   icon: LayoutDashboard },
-      { href: "/dashboard/tasks",      label: "工作任务中心", icon: CheckSquare, badge: "今日" },
-      { href: "/dashboard/sales",      label: "电商销售中心", icon: ShoppingCart },
-      { href: "/dashboard/kol",        label: "达人营销",     icon: Users },
-      { href: "/dashboard/content",    label: "内容运营",     icon: FileVideo },
-    ],
-  },
-  {
-    label: "渠道 & 服务",
-    items: [
-      { href: "/dashboard/channel",    label: "渠道分销",     icon: Store },
-      { href: "/dashboard/service",    label: "客服中心",     icon: Headphones },
-      { href: "/dashboard/competitor", label: "竞品情报中心", icon: Swords },
+      { href: "/dashboard/home",       label: "工作台首页", icon: LayoutDashboard },
+      { href: "/dashboard/tasks",      label: "任务中心",   icon: CheckSquare, badge: "今日" },
+      { href: "/dashboard/sales",      label: "电商销售",   icon: ShoppingCart },
+      { href: "/dashboard/kol",        label: "达人营销",   icon: Users },
+      { href: "/dashboard/content",    label: "内容运营",   icon: FileVideo },
+      { href: "/dashboard/channel",    label: "渠道分销",   icon: Store },
+      { href: "/dashboard/service",    label: "客服中心",   icon: Headphones },
     ],
   },
   {
     label: "数据 & 智能",
     items: [
-      { href: "/dashboard/review",     label: "智能复盘中心", icon: BrainCircuit, badge: "AI" },
-      { href: "/dashboard/data",       label: "数据中心",     icon: BarChart3 },
+      { href: "/dashboard/competitor", label: "竞品情报",   icon: Swords },
+      { href: "/dashboard/data",       label: "数据中心",   icon: BarChart3 },
+      { href: "/dashboard/review",     label: "AI复盘中心", icon: BrainCircuit, badge: "AI" },
     ],
   },
   {
     label: "设置",
     items: [
-      { href: "/dashboard/settings",   label: "系统设置",     icon: Settings },
+      { href: "/dashboard/settings",   label: "系统设置",   icon: Settings },
     ],
   },
 ];
