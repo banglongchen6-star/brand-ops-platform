@@ -1508,55 +1508,35 @@ export default function TasksPage() {
                     </div>
                   )}
 
-                  {/* Progress — 主负责人可编辑，其他人只读 */}
+                  {/* 任务进度 — 简化为状态文案 */}
                   {(() => {
-                    const isOwner =
-                      currentUserId &&
-                      (selectedTask.owner_id === currentUserId ||
-                        selectedTask.assigned_to === currentUserId);
-                    const canEditProgress =
-                      isOwner &&
-                      (selectedTask.status === "doing" ||
-                        selectedTask.status === "in_progress");
-                    const pct = selectedTask.progress_percent ?? 0;
+                    const status = selectedTask.status ?? "todo";
+                    const map: Record<string, { label: string; cls: string }> = {
+                      todo: { label: "待开始", cls: "bg-gray-50 text-gray-600 border-gray-200" },
+                      pending: { label: "待开始", cls: "bg-gray-50 text-gray-600 border-gray-200" },
+                      doing: { label: "任务进行中", cls: "bg-blue-50 text-blue-700 border-blue-200" },
+                      in_progress: { label: "任务进行中", cls: "bg-blue-50 text-blue-700 border-blue-200" },
+                      blocked: { label: "已阻塞，等待处理", cls: "bg-orange-50 text-orange-700 border-orange-200" },
+                      pending_review: { label: "已提交，待创建人审核", cls: "bg-yellow-50 text-yellow-700 border-yellow-200" },
+                      review: { label: "已提交，待创建人审核", cls: "bg-yellow-50 text-yellow-700 border-yellow-200" },
+                      done: { label: "任务已完成 ✓", cls: "bg-green-50 text-green-700 border-green-200" },
+                      completed: { label: "任务已完成 ✓", cls: "bg-green-50 text-green-700 border-green-200" },
+                      cancelled: { label: "任务已取消", cls: "bg-gray-50 text-gray-400 border-gray-200" },
+                    };
+                    const info = map[status] ?? map.todo;
                     return (
                       <div>
                         <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
                           <BarChart2 size={12} />
                           任务进度
                         </div>
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between text-xs text-gray-500">
-                            <span>完成度</span>
-                            <span className="font-semibold text-gray-700">{pct}%</span>
-                          </div>
-                          <div className="w-full bg-gray-100 rounded-full h-2.5">
-                            <div
-                              className={cn(
-                                "h-2.5 rounded-full transition-all",
-                                pct === 100
-                                  ? "bg-green-500"
-                                  : pct >= 60
-                                  ? "bg-violet-500"
-                                  : "bg-blue-400"
-                              )}
-                              style={{ width: `${pct}%` }}
-                            />
-                          </div>
-                          {canEditProgress && (
-                            <input
-                              type="range"
-                              min={0}
-                              max={100}
-                              step={5}
-                              value={pct}
-                              disabled={actionLoading}
-                              onChange={(e) =>
-                                handleUpdateProgress(selectedTask, parseInt(e.target.value))
-                              }
-                              className="w-full accent-violet-600"
-                            />
+                        <div
+                          className={cn(
+                            "text-sm font-medium px-3 py-2 rounded-xl border",
+                            info.cls
                           )}
+                        >
+                          {info.label}
                         </div>
                       </div>
                     );
@@ -1604,10 +1584,9 @@ export default function TasksPage() {
                         buttons.push(
                           <button
                             key="submit"
-                            disabled={actionLoading || pct < 100}
-                            title={pct < 100 ? "进度达到 100% 才可提交审核" : ""}
+                            disabled={actionLoading}
                             onClick={() => handleSubmitReview(selectedTask)}
-                            className="flex-1 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="flex-1 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-40"
                           >
                             <CheckCheck size={14} /> 提交审核
                           </button>
