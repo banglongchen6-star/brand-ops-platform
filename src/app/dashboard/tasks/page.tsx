@@ -786,7 +786,7 @@ export default function TasksPage() {
       <div className="flex items-center gap-1 bg-white border border-gray-100 rounded-xl p-1 shadow-sm w-fit">
         {(
           [
-            { key: "my_owned", label: "我的任务/协助" },
+            { key: "my_owned", label: "我的任务" },
             { key: "team", label: "团队任务" },
             { key: "my_created", label: "我创建的" },
           ] as { key: ViewTab; label: string }[]
