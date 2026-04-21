@@ -417,9 +417,6 @@ export default function ContentStudioPage() {
       </div>
 
       {/* Main layout: left pool + right workspace */}
-      {/* ── Hot Feed (全网热榜) ────────────────────────────────────── */}
-      <HotFeedSection onSaved={load} />
-
       <div className="grid gap-4 lg:grid-cols-[380px,1fr] lg:items-start">
         {/* ── LEFT: Inspiration Pool ───────────────────────────────────── */}
         <div className="sticky top-4 flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white">
