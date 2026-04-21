@@ -84,6 +84,10 @@ interface Task {
   created_at: string | null;
   updated_at?: string | null;
   creator_id?: string | null;
+  submitted_at?: string | null;
+  completed_at?: string | null;
+  cancelled_at?: string | null;
+  reject_reason?: string | null;
 }
 
 interface Profile {
@@ -100,6 +104,8 @@ interface Participant {
   assist_content?: string | null;
   assist_deadline?: string | null;
   assist_done?: boolean | null;
+  assist_done_at?: string | null;
+  own_progress?: number | null;
 }
 
 interface ParsedTask {
@@ -290,6 +296,10 @@ export default function TasksPage() {
 
   // ── Detail drawer ──
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [showBlockModal, setShowBlockModal] = useState(false);
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [reasonInput, setReasonInput] = useState("");
 
   // ── Create modal ──
   const [showModal, setShowModal] = useState(false);
@@ -433,6 +443,120 @@ export default function TasksPage() {
     overdue: tasks.filter((t) => isOverdue(t)).length,
     blocked: tasks.filter((t) => t.status === "blocked").length,
   };
+
+  // ─── Task lifecycle actions ───────────────────────────────────────────────
+
+  async function updateTaskFields(taskId: string, patch: Record<string, unknown>) {
+    setActionLoading(true);
+    const { error } = await supabase.from("tasks").update(patch).eq("id", taskId);
+    if (error) {
+      alert("操作失败: " + error.message);
+      setActionLoading(false);
+      return false;
+    }
+    // 本地更新 selectedTask & tasks
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, ...patch } : t)));
+    setSelectedTask((prev) => (prev && prev.id === taskId ? { ...prev, ...patch } : prev));
+    setActionLoading(false);
+    return true;
+  }
+
+  async function handleStartTask(task: Task) {
+    await updateTaskFields(task.id, { status: "doing" });
+  }
+  async function handleUnblock(task: Task) {
+    await updateTaskFields(task.id, { status: "doing", blocked_reason: null });
+  }
+  async function handleBlockConfirm(task: Task) {
+    if (!reasonInput.trim()) return;
+    const ok = await updateTaskFields(task.id, {
+      status: "blocked",
+      blocked_reason: reasonInput.trim(),
+    });
+    if (ok) {
+      setShowBlockModal(false);
+      setReasonInput("");
+    }
+  }
+  async function handleSubmitReview(task: Task) {
+    await updateTaskFields(task.id, {
+      status: "pending_review",
+      submitted_at: new Date().toISOString(),
+    });
+  }
+  async function handleApprove(task: Task) {
+    await updateTaskFields(task.id, {
+      status: "done",
+      progress_percent: 100,
+      completed_at: new Date().toISOString(),
+      reject_reason: null,
+    });
+  }
+  async function handleRejectConfirm(task: Task) {
+    if (!reasonInput.trim()) return;
+    const ok = await updateTaskFields(task.id, {
+      status: "doing",
+      reject_reason: reasonInput.trim(),
+    });
+    if (ok) {
+      setShowRejectModal(false);
+      setReasonInput("");
+    }
+  }
+  async function handleCancel(task: Task) {
+    if (!confirm("确定取消这个任务？")) return;
+    await updateTaskFields(task.id, {
+      status: "cancelled",
+      cancelled_at: new Date().toISOString(),
+    });
+  }
+  async function handleUpdateProgress(task: Task, pct: number) {
+    await updateTaskFields(task.id, { progress_percent: pct });
+  }
+
+  // 协作人 / 协助人自身的交互
+  async function handleUpdateOwnProgress(participantId: string, pct: number) {
+    const { error } = await supabase
+      .from("task_participants")
+      .update({ own_progress: pct })
+      .eq("id", participantId);
+    if (error) {
+      alert("更新进度失败: " + error.message);
+      return;
+    }
+    setParticipantsByTask((prev) => {
+      const next: Record<string, Participant[]> = {};
+      Object.keys(prev).forEach((tid) => {
+        next[tid] = prev[tid].map((p) =>
+          p.id === participantId ? { ...p, own_progress: pct } : p
+        );
+      });
+      return next;
+    });
+  }
+  async function handleToggleAssistDone(participantId: string, next: boolean) {
+    const patch: Record<string, unknown> = {
+      assist_done: next,
+      assist_done_at: next ? new Date().toISOString() : null,
+    };
+    const { error } = await supabase
+      .from("task_participants")
+      .update(patch)
+      .eq("id", participantId);
+    if (error) {
+      alert("更新失败: " + error.message);
+      return;
+    }
+    setParticipantsByTask((prev) => {
+      const nextMap: Record<string, Participant[]> = {};
+      Object.keys(prev).forEach((tid) => {
+        nextMap[tid] = prev[tid].map((p) =>
+          p.id === participantId ? { ...p, ...patch } as Participant : p
+        );
+      });
+      return nextMap;
+    });
+  }
 
   // ─── Actions ───────────────────────────────────────────────────────────────
 
@@ -1220,17 +1344,62 @@ export default function TasksPage() {
                               <Users size={12} />
                               协作人（{collabs.length}）
                             </div>
-                            <div className="flex flex-wrap gap-2">
+                            <div className="space-y-2">
                               {collabs.map((c) => {
                                 const name =
                                   profiles.find((p) => p.id === c.user_id)?.full_name || "未知";
+                                const isMe = c.user_id === currentUserId;
+                                const own = c.own_progress ?? 0;
+                                const canEdit =
+                                  isMe &&
+                                  (selectedTask.status === "doing" ||
+                                    selectedTask.status === "in_progress");
                                 return (
-                                  <span
+                                  <div
                                     key={c.id || c.user_id}
-                                    className="text-xs bg-blue-50 text-blue-700 border border-blue-100 px-2.5 py-1 rounded-full"
+                                    className={cn(
+                                      "border rounded-xl px-3 py-2.5",
+                                      isMe
+                                        ? "bg-blue-50/40 border-blue-200"
+                                        : "bg-gray-50/40 border-gray-100"
+                                    )}
                                   >
-                                    {name}
-                                  </span>
+                                    <div className="flex items-center justify-between mb-1.5">
+                                      <span className="text-sm font-medium text-gray-800">
+                                        {name}
+                                        {isMe && (
+                                          <span className="ml-1.5 text-[10px] bg-blue-500 text-white px-1.5 py-0.5 rounded-full">
+                                            我
+                                          </span>
+                                        )}
+                                      </span>
+                                      <span className="text-xs text-blue-700 font-semibold">
+                                        {own}%
+                                      </span>
+                                    </div>
+                                    <div className="w-full bg-gray-100 rounded-full h-1.5 mb-1">
+                                      <div
+                                        className="h-1.5 rounded-full bg-blue-500 transition-all"
+                                        style={{ width: `${own}%` }}
+                                      />
+                                    </div>
+                                    {canEdit && c.id && (
+                                      <input
+                                        type="range"
+                                        min={0}
+                                        max={100}
+                                        step={5}
+                                        value={own}
+                                        onChange={(e) =>
+                                          handleUpdateOwnProgress(
+                                            c.id!,
+                                            parseInt(e.target.value)
+                                          )
+                                        }
+                                        className="w-full accent-blue-600 mt-1"
+                                      />
+                                    )}
+                                  </div>
                                 );
                               })}
                             </div>
@@ -1246,14 +1415,25 @@ export default function TasksPage() {
                               {assists.map((a) => {
                                 const name =
                                   profiles.find((p) => p.id === a.user_id)?.full_name || "未知";
+                                const isMe = a.user_id === currentUserId;
                                 return (
                                   <div
                                     key={a.id || a.user_id}
-                                    className="border border-gray-100 rounded-xl px-3 py-2.5 bg-gray-50/50"
+                                    className={cn(
+                                      "border rounded-xl px-3 py-2.5",
+                                      isMe
+                                        ? "bg-amber-50/60 border-amber-200"
+                                        : "bg-gray-50/50 border-gray-100"
+                                    )}
                                   >
                                     <div className="flex items-center justify-between mb-1">
                                       <span className="text-sm font-medium text-gray-800">
                                         {name}
+                                        {isMe && (
+                                          <span className="ml-1.5 text-[10px] bg-amber-500 text-white px-1.5 py-0.5 rounded-full">
+                                            我
+                                          </span>
+                                        )}
                                       </span>
                                       <div className="flex items-center gap-2">
                                         {a.assist_deadline && (
@@ -1275,9 +1455,35 @@ export default function TasksPage() {
                                       </div>
                                     </div>
                                     {a.assist_content && (
-                                      <p className="text-xs text-gray-600 whitespace-pre-wrap">
+                                      <p className="text-xs text-gray-600 whitespace-pre-wrap mb-1.5">
                                         {a.assist_content}
                                       </p>
+                                    )}
+                                    {/* 只有本人可以勾选完成 */}
+                                    {isMe && a.id && (
+                                      <label className="flex items-center gap-2 mt-1.5 cursor-pointer select-none bg-white border border-amber-200 rounded-lg px-2.5 py-1.5 hover:bg-amber-50 transition">
+                                        <input
+                                          type="checkbox"
+                                          checked={!!a.assist_done}
+                                          onChange={(e) =>
+                                            handleToggleAssistDone(a.id!, e.target.checked)
+                                          }
+                                          className="accent-amber-600"
+                                        />
+                                        <span className="text-xs text-amber-800 font-medium">
+                                          {a.assist_done ? "✓ 我已完成协助" : "勾选表示我已完成协助"}
+                                        </span>
+                                        {a.assist_done && a.assist_done_at && (
+                                          <span className="text-[10px] text-gray-400 ml-auto">
+                                            {new Date(a.assist_done_at).toLocaleString("zh-CN", {
+                                              month: "numeric",
+                                              day: "numeric",
+                                              hour: "2-digit",
+                                              minute: "2-digit",
+                                            })}
+                                          </span>
+                                        )}
+                                      </label>
                                     )}
                                   </div>
                                 );
@@ -1289,34 +1495,203 @@ export default function TasksPage() {
                     );
                   })()}
 
-                  {/* Progress */}
-                  <div>
-                    <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
-                      <BarChart2 size={12} />
-                      任务进度
-                    </div>
-                    <div className="space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-gray-500">
-                        <span>完成度</span>
-                        <span className="font-semibold text-gray-700">
-                          {selectedTask.progress_percent ?? 0}%
-                        </span>
+                  {/* 打回原因 */}
+                  {selectedTask.reject_reason && selectedTask.status === "doing" && (
+                    <div>
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-red-500 mb-2 uppercase tracking-wide">
+                        <AlertCircle size={12} />
+                        审核打回原因
                       </div>
-                      <div className="w-full bg-gray-100 rounded-full h-2.5">
-                        <div
-                          className={cn(
-                            "h-2.5 rounded-full transition-all",
-                            (selectedTask.progress_percent ?? 0) === 100
-                              ? "bg-green-500"
-                              : (selectedTask.progress_percent ?? 0) >= 60
-                              ? "bg-violet-500"
-                              : "bg-blue-400"
+                      <p className="text-sm text-red-700 leading-relaxed whitespace-pre-wrap bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+                        {selectedTask.reject_reason}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Progress — 主负责人可编辑，其他人只读 */}
+                  {(() => {
+                    const isOwner =
+                      currentUserId &&
+                      (selectedTask.owner_id === currentUserId ||
+                        selectedTask.assigned_to === currentUserId);
+                    const canEditProgress =
+                      isOwner &&
+                      (selectedTask.status === "doing" ||
+                        selectedTask.status === "in_progress");
+                    const pct = selectedTask.progress_percent ?? 0;
+                    return (
+                      <div>
+                        <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
+                          <BarChart2 size={12} />
+                          任务进度
+                        </div>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between text-xs text-gray-500">
+                            <span>完成度</span>
+                            <span className="font-semibold text-gray-700">{pct}%</span>
+                          </div>
+                          <div className="w-full bg-gray-100 rounded-full h-2.5">
+                            <div
+                              className={cn(
+                                "h-2.5 rounded-full transition-all",
+                                pct === 100
+                                  ? "bg-green-500"
+                                  : pct >= 60
+                                  ? "bg-violet-500"
+                                  : "bg-blue-400"
+                              )}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          {canEditProgress && (
+                            <input
+                              type="range"
+                              min={0}
+                              max={100}
+                              step={5}
+                              value={pct}
+                              disabled={actionLoading}
+                              onChange={(e) =>
+                                handleUpdateProgress(selectedTask, parseInt(e.target.value))
+                              }
+                              className="w-full accent-violet-600"
+                            />
                           )}
-                          style={{ width: `${selectedTask.progress_percent ?? 0}%` }}
-                        />
+                        </div>
                       </div>
-                    </div>
-                  </div>
+                    );
+                  })()}
+
+                  {/* ⭐ 状态操作区 */}
+                  {(() => {
+                    if (!currentUserId) return null;
+                    const isOwner =
+                      selectedTask.owner_id === currentUserId ||
+                      selectedTask.assigned_to === currentUserId;
+                    const isCreator = selectedTask.creator_id === currentUserId;
+                    const status = selectedTask.status;
+                    const pct = selectedTask.progress_percent ?? 0;
+                    const buttons: React.ReactNode[] = [];
+
+                    // 主负责人按钮
+                    if (isOwner) {
+                      if (status === "todo" || status === "pending") {
+                        buttons.push(
+                          <button
+                            key="start"
+                            disabled={actionLoading}
+                            onClick={() => handleStartTask(selectedTask)}
+                            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                          >
+                            <Clock size={14} /> 开始任务
+                          </button>
+                        );
+                      }
+                      if (status === "doing" || status === "in_progress") {
+                        buttons.push(
+                          <button
+                            key="block"
+                            disabled={actionLoading}
+                            onClick={() => {
+                              setReasonInput("");
+                              setShowBlockModal(true);
+                            }}
+                            className="flex-1 bg-orange-100 hover:bg-orange-200 text-orange-700 text-sm font-medium py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                          >
+                            <PauseCircle size={14} /> 标记阻塞
+                          </button>
+                        );
+                        buttons.push(
+                          <button
+                            key="submit"
+                            disabled={actionLoading || pct < 100}
+                            title={pct < 100 ? "进度达到 100% 才可提交审核" : ""}
+                            onClick={() => handleSubmitReview(selectedTask)}
+                            className="flex-1 bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <CheckCheck size={14} /> 提交审核
+                          </button>
+                        );
+                      }
+                      if (status === "blocked") {
+                        buttons.push(
+                          <button
+                            key="unblock"
+                            disabled={actionLoading}
+                            onClick={() => handleUnblock(selectedTask)}
+                            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                          >
+                            <Clock size={14} /> 恢复进行
+                          </button>
+                        );
+                      }
+                      if (status === "pending_review" || status === "review") {
+                        buttons.push(
+                          <div
+                            key="waiting"
+                            className="flex-1 bg-yellow-50 border border-yellow-200 text-yellow-700 text-sm py-2.5 rounded-xl flex items-center justify-center gap-1.5"
+                          >
+                            <TrendingUp size={14} /> 已提交，等待创建人审核
+                          </div>
+                        );
+                      }
+                    }
+
+                    // 创建人按钮
+                    if (isCreator) {
+                      if (status === "pending_review" || status === "review") {
+                        buttons.push(
+                          <button
+                            key="approve"
+                            disabled={actionLoading}
+                            onClick={() => handleApprove(selectedTask)}
+                            className="flex-1 bg-green-600 hover:bg-green-700 text-white text-sm font-medium py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                          >
+                            <CheckCircle2 size={14} /> 审核通过
+                          </button>
+                        );
+                        buttons.push(
+                          <button
+                            key="reject"
+                            disabled={actionLoading}
+                            onClick={() => {
+                              setReasonInput("");
+                              setShowRejectModal(true);
+                            }}
+                            className="flex-1 bg-red-100 hover:bg-red-200 text-red-700 text-sm font-medium py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                          >
+                            <X size={14} /> 审核打回
+                          </button>
+                        );
+                      }
+                      if (
+                        status !== "done" &&
+                        status !== "completed" &&
+                        status !== "cancelled"
+                      ) {
+                        buttons.push(
+                          <button
+                            key="cancel"
+                            disabled={actionLoading}
+                            onClick={() => handleCancel(selectedTask)}
+                            className="bg-gray-100 hover:bg-red-50 text-gray-500 hover:text-red-600 text-sm font-medium px-4 py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 disabled:opacity-50"
+                          >
+                            <Ban size={14} /> 取消任务
+                          </button>
+                        );
+                      }
+                    }
+
+                    if (buttons.length === 0) return null;
+                    return (
+                      <div className="pt-3 border-t border-gray-100">
+                        <div className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">
+                          状态操作
+                        </div>
+                        <div className="flex gap-2 flex-wrap">{buttons}</div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Right column – meta */}
@@ -2053,6 +2428,90 @@ export default function TasksPage() {
                   <Plus size={14} />
                 )}
                 创建任务
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ 阻塞原因弹窗 ══ */}
+      {showBlockModal && selectedTask && (
+        <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+              <PauseCircle size={16} className="text-orange-500" />
+              <h3 className="font-semibold text-gray-900">标记阻塞</h3>
+            </div>
+            <div className="px-5 py-4 space-y-2">
+              <label className="block text-xs text-gray-600">
+                阻塞原因 <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={reasonInput}
+                onChange={(e) => setReasonInput(e.target.value)}
+                placeholder="说明任务为何被阻塞，便于创建人协调资源"
+                rows={4}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-orange-400 resize-none"
+              />
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 flex gap-2">
+              <button
+                onClick={() => {
+                  setShowBlockModal(false);
+                  setReasonInput("");
+                }}
+                className="flex-1 border border-gray-200 text-gray-600 text-sm py-2 rounded-xl hover:bg-gray-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => handleBlockConfirm(selectedTask)}
+                disabled={!reasonInput.trim() || actionLoading}
+                className="flex-1 bg-orange-500 hover:bg-orange-600 text-white text-sm py-2 rounded-xl disabled:opacity-50"
+              >
+                确认标记阻塞
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ 审核打回弹窗 ══ */}
+      {showRejectModal && selectedTask && (
+        <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center gap-2">
+              <X size={16} className="text-red-500" />
+              <h3 className="font-semibold text-gray-900">审核打回</h3>
+            </div>
+            <div className="px-5 py-4 space-y-2">
+              <label className="block text-xs text-gray-600">
+                打回原因 <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                value={reasonInput}
+                onChange={(e) => setReasonInput(e.target.value)}
+                placeholder="说明需要修改或补充的地方，任务将回到进行中状态"
+                rows={4}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-red-400 resize-none"
+              />
+            </div>
+            <div className="px-5 py-3 border-t border-gray-100 flex gap-2">
+              <button
+                onClick={() => {
+                  setShowRejectModal(false);
+                  setReasonInput("");
+                }}
+                className="flex-1 border border-gray-200 text-gray-600 text-sm py-2 rounded-xl hover:bg-gray-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => handleRejectConfirm(selectedTask)}
+                disabled={!reasonInput.trim() || actionLoading}
+                className="flex-1 bg-red-500 hover:bg-red-600 text-white text-sm py-2 rounded-xl disabled:opacity-50"
+              >
+                确认打回
               </button>
             </div>
           </div>
