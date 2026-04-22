@@ -114,9 +114,11 @@ const subTabs: { key: SubTab; label: string; icon: typeof Flame }[] = [
   { key: "history", label: "历史", icon: Clock },
 ];
 
+type QuickPanel = null | "platforms" | "keywords" | "pool" | "general";
+
 export default function ContentWorkspacePage() {
   const [activeTab, setActiveTab] = useState<TabKey>("trends");
-  const [showSettings, setShowSettings] = useState(false);
+  const [panel, setPanel] = useState<QuickPanel>(null);
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -131,15 +133,11 @@ export default function ContentWorkspacePage() {
             <p className="mt-1 text-sm text-gray-500">音乐密码 · 全平台内容生产与管理</p>
           </div>
           <div className="flex items-center gap-2">
-            <button className="relative rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">
-              <Target className="inline h-4 w-4" /> <span className="ml-1">候选池</span>
-              <span className="ml-1.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] text-white">5</span>
-            </button>
             <button className="relative rounded-lg border border-gray-200 bg-white p-2 text-gray-600 hover:bg-gray-50">
               <Bell className="h-4 w-4" />
               <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-red-500" />
             </button>
-            <button onClick={() => setShowSettings(true)} className="rounded-lg border border-gray-200 bg-white p-2 text-gray-600 hover:bg-gray-50">
+            <button onClick={() => setPanel("general")} className="rounded-lg border border-gray-200 bg-white p-2 text-gray-600 hover:bg-gray-50">
               <Settings className="h-4 w-4" />
             </button>
           </div>
@@ -167,19 +165,19 @@ export default function ContentWorkspacePage() {
       </div>
 
       {/* ── Tab Content ──────────────────────────────────────────────── */}
-      {activeTab === "trends" && <TrendsTab />}
+      {activeTab === "trends" && <TrendsTab onOpenPanel={setPanel} />}
       {activeTab === "create" && <Placeholder label="✨ AI 创作区" />}
       {activeTab === "review" && <Placeholder label="✅ 审核发布" />}
       {activeTab === "analytics" && <Placeholder label="📊 内容复盘" />}
 
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {panel && <QuickPanelModal panel={panel} onClose={() => setPanel(null)} />}
     </div>
   );
 }
 
 // ── 热点发现 Tab ─────────────────────────────────────────────────────────────
 
-function TrendsTab() {
+function TrendsTab({ onOpenPanel }: { onOpenPanel: (p: QuickPanel) => void }) {
   const [subTab, setSubTab] = useState<SubTab>("live");
   const [density, setDensity] = useState<Density>("card");
   const [activePlatforms, setActivePlatforms] = useState<string[]>(["douyin", "bilibili", "weibo", "zhihu"]);
@@ -207,6 +205,34 @@ function TrendsTab() {
             </button>
           );
         })}
+      </div>
+
+      {/* Quick Access Bar — 平台管理 / 关键词库 / 候选池 */}
+      <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
+        <button
+          onClick={() => onOpenPanel("platforms")}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+        >
+          📡 平台管理
+          <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] text-gray-500">
+            {mockPlatforms.filter((p) => p.enabled).length}/{mockPlatforms.length}
+          </span>
+        </button>
+        <button
+          onClick={() => onOpenPanel("keywords")}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+        >
+          🔤 关键词库
+          <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] text-gray-500">{mockKeywords.length}</span>
+        </button>
+        <button
+          onClick={() => onOpenPanel("pool")}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100"
+        >
+          <Target className="h-3.5 w-3.5" />候选池
+          <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] text-white">5</span>
+        </button>
+        <span className="ml-auto text-[11px] text-gray-400">上次刷新：2 分钟前</span>
       </div>
 
       {/* Sub-tab specific content */}
@@ -503,22 +529,22 @@ function ManualInputView() {
 
 // ── 设置弹窗 ─────────────────────────────────────────────────────────────────
 
-function SettingsModal({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<"platforms" | "keywords" | "general">("platforms");
+function QuickPanelModal({ panel, onClose }: { panel: Exclude<QuickPanel, null>; onClose: () => void }) {
+  const titles: Record<Exclude<QuickPanel, null>, string> = {
+    platforms: "📡 平台管理",
+    keywords: "🔤 关键词库",
+    pool: "🎯 候选池",
+    general: "⚙️ 通用设置",
+  };
+  const tab = panel;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
       <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
           <h2 className="flex items-center gap-2 text-lg font-semibold">
-            <Settings className="h-5 w-5" />工作台设置
+            {titles[panel]}
           </h2>
           <button onClick={onClose} className="rounded p-1 hover:bg-gray-100"><X className="h-4 w-4" /></button>
-        </div>
-
-        <div className="flex border-b border-gray-100">
-          <SettingTab label="📡 平台管理" active={tab === "platforms"} onClick={() => setTab("platforms")} />
-          <SettingTab label="🔤 关键词库" active={tab === "keywords"} onClick={() => setTab("keywords")} />
-          <SettingTab label="⚙️ 通用" active={tab === "general"} onClick={() => setTab("general")} />
         </div>
 
         <div className="max-h-[60vh] overflow-y-auto p-5">
@@ -580,6 +606,32 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
               </div>
             </div>
           )}
+          {tab === "pool" && (
+            <div className="space-y-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs text-gray-500">候选池保存的热点/爆款，可直接在「AI 创作区」引用生成选题</p>
+                <div className="flex gap-1 rounded-lg border border-gray-200 p-0.5 text-xs">
+                  <button className="rounded-md bg-gray-900 px-2 py-0.5 text-white">个人</button>
+                  <button className="rounded-md px-2 py-0.5 text-gray-600 hover:bg-gray-100">团队</button>
+                </div>
+              </div>
+              {[
+                { t: "用AI写一首送给妈妈的歌，全场哭了", p: "抖音", tag: "热点" },
+                { t: "我妈50岁学吉他三个月，弹给爸爸听", p: "小红书", tag: "爆款" },
+                { t: "盲选！你能听出是真人还是AI唱的吗", p: "抖音", tag: "热点" },
+                { t: "【翻唱】周杰伦《晴天》指弹吉他版", p: "B站", tag: "爆款" },
+                { t: "零基础多久能学会一首歌？", p: "知乎", tag: "热点" },
+              ].map((x, i) => (
+                <div key={i} className="flex items-center gap-3 rounded-lg border border-gray-200 p-3 hover:border-amber-300">
+                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600">{x.p}</span>
+                  <span className="flex-1 truncate text-sm text-gray-900">{x.t}</span>
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] ${x.tag === "爆款" ? "bg-purple-50 text-purple-700" : "bg-rose-50 text-rose-700"}`}>{x.tag}</span>
+                  <button className="rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700 hover:bg-amber-100">→ 去创作</button>
+                  <button className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-500"><X className="h-3 w-3" /></button>
+                </div>
+              ))}
+            </div>
+          )}
           {tab === "general" && (
             <div className="space-y-4">
               <SettingRow label="自动刷新间隔">
@@ -616,13 +668,6 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function SettingTab({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button onClick={onClick} className={`flex-1 px-4 py-2.5 text-sm ${active ? "border-b-2 border-gray-900 font-semibold text-gray-900" : "text-gray-500 hover:text-gray-900"}`}>
-      {label}
-    </button>
-  );
-}
 function SettingRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between">
