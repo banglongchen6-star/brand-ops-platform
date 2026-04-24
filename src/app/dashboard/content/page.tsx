@@ -13,9 +13,9 @@ import {
 
 const modules = [
   {
-    href: "/dashboard/content/studio",
+    href: "/dashboard/content/workspace",
     title: "内容工作台",
-    desc: "灵感池 + 选题创作一站式工作区，从热点/爆款到脚本生成",
+    desc: "热点/爆款 → AI创作 → 审核发布 → 复盘 的一体化工作台",
     icon: Sparkles,
     color: "bg-amber-50 text-amber-600",
     featured: true,
