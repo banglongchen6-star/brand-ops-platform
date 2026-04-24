@@ -98,7 +98,7 @@ const mockTropes = [
 type TabKey = "trends" | "create" | "review" | "analytics";
 type SubTab = "live" | "starred" | "hitlib" | "tropes" | "manual" | "history";
 type Density = "card" | "list";
-type QuickPanel = null | "platforms" | "keywords" | "pool" | "general";
+type QuickPanel = null | "platforms" | "keywords" | "pool" | "general" | "hotsources";
 
 const mainTabs: { key: TabKey; label: string; icon: typeof Flame }[] = [
   { key: "trends", label: "热点发现", icon: Flame },
@@ -354,16 +354,13 @@ function TrendsTab({
         })}
       </div>
 
-      {/* Quick Access Bar — 平台管理 / 关键词库 / 候选池 */}
+      {/* Quick Access Bar — 热点来源 / 关键词库 / 候选池 */}
       <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2">
         <button
-          onClick={() => onOpenPanel("platforms")}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+          onClick={() => onOpenPanel("hotsources")}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100"
         >
-          📡 平台管理
-          <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] text-gray-500">
-            {enabledPlatforms.length}/{platforms.length}
-          </span>
+          🛰️ 热点来源
         </button>
         <button
           onClick={() => onOpenPanel("keywords")}
@@ -393,7 +390,7 @@ function TrendsTab({
               {loadingPlatforms ? (
                 <Loader2 className="h-3 w-3 animate-spin text-gray-400" />
               ) : enabledPlatforms.length === 0 ? (
-                <span className="text-xs text-gray-400">暂无启用平台，请到「平台管理」开启</span>
+                <span className="text-xs text-gray-400">暂无启用平台，请点右侧「平台管理」开启</span>
               ) : enabledPlatforms.map((p) => {
                 const on = selected.includes(p.slug);
                 return (
@@ -411,6 +408,17 @@ function TrendsTab({
                   </button>
                 );
               })}
+              <button
+                onClick={() => onOpenPanel("platforms")}
+                className="ml-auto inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                title="平台管理"
+              >
+                <Settings className="h-3 w-3" />
+                平台管理
+                <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] text-gray-500">
+                  {enabledPlatforms.length}/{platforms.length}
+                </span>
+              </button>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <div className="relative flex-1 min-w-[200px]">
@@ -1073,6 +1081,7 @@ function QuickPanelModal({
     keywords: "🔤 关键词库",
     pool: "🎯 候选池",
     general: "⚙️ 通用设置",
+    hotsources: "🛰️ 热点来源",
   };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
@@ -1089,12 +1098,132 @@ function QuickPanelModal({
           {panel === "keywords" && <KeywordsPanel />}
           {panel === "pool" && <PoolPanel platforms={platforms} onChanged={onPoolChanged} />}
           {panel === "general" && <GeneralPanel />}
+          {panel === "hotsources" && <HotSourcesPanel />}
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-5 py-3">
           <button onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-50">关闭</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── 热点来源面板（URL + 启用开关） ─────────────────────────────────────────
+
+interface HotSource {
+  slug: string;
+  name: string;
+  api_url: string;
+  enabled: boolean;
+  notes: string;
+  sort_order: number;
+  platform_total: number;
+  platform_enabled: number;
+}
+
+function HotSourcesPanel() {
+  const [sources, setSources] = useState<HotSource[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draftUrl, setDraftUrl] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    const r = await fetch("/api/hot-sources");
+    const j = await r.json();
+    if (r.ok) setSources(j.sources ?? []);
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, []);
+
+  async function patch(slug: string, body: Partial<{ api_url: string; enabled: boolean }>) {
+    setSaving(true);
+    const r = await fetch("/api/hot-sources", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug, ...body }),
+    });
+    setSaving(false);
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      alert("保存失败：" + (j.error ?? r.status));
+      return;
+    }
+    setEditing(null);
+    await load();
+  }
+
+  if (loading) return <div className="flex justify-center py-6"><Loader2 className="h-5 w-5 animate-spin text-gray-400" /></div>;
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-gray-500">管理热点数据来源的 API 地址和总开关。禁用某来源后，其下所有平台都不会同步。</p>
+      {sources.length === 0 && (
+        <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-800">
+          数据库尚未初始化。请先执行 <code className="bg-white px-1">supabase/hot_source_configs.sql</code>。
+        </p>
+      )}
+      {sources.map((s) => (
+        <div key={s.slug} className="rounded-lg border border-gray-200 p-3">
+          <div className="flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-medium text-gray-900">{s.name}</p>
+                <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">{s.slug}</span>
+              </div>
+              <p className="mt-0.5 text-[11px] text-gray-400">{s.notes}</p>
+
+              {editing === s.slug ? (
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    value={draftUrl}
+                    onChange={(e) => setDraftUrl(e.target.value)}
+                    placeholder="https://your-newsnow-domain/api"
+                    className="flex-1 rounded-lg border border-gray-300 px-2 py-1 text-xs focus:border-gray-900 focus:outline-none"
+                  />
+                  <button
+                    onClick={() => patch(s.slug, { api_url: draftUrl })}
+                    disabled={saving}
+                    className="rounded-lg bg-indigo-600 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                  >保存</button>
+                  <button
+                    onClick={() => setEditing(null)}
+                    className="rounded-lg border border-gray-200 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                  >取消</button>
+                </div>
+              ) : (
+                <div className="mt-1.5 flex items-center gap-2">
+                  <code className="flex-1 truncate rounded bg-gray-50 px-2 py-1 text-[11px] text-gray-700">{s.api_url}</code>
+                  <button
+                    onClick={() => { setEditing(s.slug); setDraftUrl(s.api_url); }}
+                    className="rounded border border-gray-200 px-2 py-0.5 text-[11px] text-gray-700 hover:bg-gray-50"
+                  >编辑</button>
+                </div>
+              )}
+
+              <p className="mt-1 text-[11px] text-gray-500">
+                平台：<span className="font-medium text-gray-700">{s.platform_enabled}/{s.platform_total}</span> 已启用
+              </p>
+            </div>
+
+            <label className="relative inline-flex cursor-pointer items-center pt-1">
+              <input
+                type="checkbox"
+                checked={s.enabled}
+                disabled={saving}
+                onChange={() => patch(s.slug, { enabled: !s.enabled })}
+                className="peer sr-only"
+              />
+              <div className="h-5 w-9 rounded-full bg-gray-200 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:bg-green-500 peer-checked:after:translate-x-4"></div>
+            </label>
+          </div>
+        </div>
+      ))}
+      <p className="rounded-lg bg-gray-50 p-2 text-[11px] text-gray-500">
+        💡 部署自己的 newsnow 后，把对应来源的 URL 改成你的域名即可。不需要在 Vercel 改环境变量。
+      </p>
     </div>
   );
 }
@@ -1113,6 +1242,12 @@ const COLOR_PRESETS = [
   "bg-amber-500 text-white",
   "bg-gray-700 text-white",
 ];
+
+const SOURCE_GROUP_META: Record<string, { label: string; hint: string; badge: string }> = {
+  trendradar: { label: "TrendRadar 聚合", hint: "通过 newsnow /api 自动拉取", badge: "bg-indigo-100 text-indigo-700" },
+  dailyhot:   { label: "DailyHot 自动",   hint: "通过 api-hot.imsyy.top 拉取",  badge: "bg-blue-100 text-blue-700" },
+  manual:     { label: "仅手动录入",      hint: "无自动接口，通过「手动录入」粘贴链接", badge: "bg-gray-100 text-gray-600" },
+};
 
 function PlatformsPanel({ platforms, onChanged }: { platforms: Platform[]; onChanged: () => void }) {
   const [editing, setEditing] = useState<Platform | null>(null);
@@ -1137,10 +1272,43 @@ function PlatformsPanel({ platforms, onChanged }: { platforms: Platform[]; onCha
     else onChanged();
   }
 
+  // 按 source 分组
+  const groups: Record<string, Platform[]> = { trendradar: [], dailyhot: [], manual: [] };
+  for (const p of platforms) {
+    const key = p.source in groups ? p.source : "manual";
+    groups[key].push(p);
+  }
+  const orderedKeys = ["trendradar", "dailyhot", "manual"];
+
+  const renderRow = (p: Platform) => (
+    <div key={p.id} className="flex items-center gap-3 rounded-lg border border-gray-200 p-3">
+      <span className={`rounded px-2 py-1 text-xs ${p.color_class}`}>{p.name}</span>
+      <div className="flex-1">
+        <p className="text-sm font-medium text-gray-900">{p.name} <span className="ml-1 text-xs text-gray-400">({p.slug})</span></p>
+      </div>
+      <label className="relative inline-flex cursor-pointer items-center">
+        <input
+          type="checkbox"
+          checked={p.enabled}
+          disabled={saving === p.id}
+          onChange={() => toggleEnabled(p)}
+          className="peer sr-only"
+        />
+        <div className="h-5 w-9 rounded-full bg-gray-200 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:bg-green-500 peer-checked:after:translate-x-4"></div>
+      </label>
+      <button onClick={() => setEditing(p)} className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+        <Edit2 className="h-3.5 w-3.5" />
+      </button>
+      <button onClick={() => deletePlatform(p)} className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600">
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs text-gray-500">管理要聚合的平台、启停和来源方式</p>
+        <p className="text-xs text-gray-500">按来源分组管理平台启停（数据源 URL 在「🛰️ 热点来源」里改）</p>
         <button
           onClick={() => setCreating(true)}
           className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-50"
@@ -1149,31 +1317,21 @@ function PlatformsPanel({ platforms, onChanged }: { platforms: Platform[]; onCha
         </button>
       </div>
       {platforms.length === 0 && <p className="text-center text-xs text-gray-400 py-8">暂无平台，请点「新增平台」</p>}
-      {platforms.map((p) => (
-        <div key={p.id} className="flex items-center gap-3 rounded-lg border border-gray-200 p-3">
-          <span className={`rounded px-2 py-1 text-xs ${p.color_class}`}>{p.name}</span>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-gray-900">{p.name} <span className="ml-1 text-xs text-gray-400">({p.slug})</span></p>
-            <p className="text-xs text-gray-500">来源：{p.source === "dailyhot" ? "DailyHot 自动" : p.source === "trendradar" ? "TrendRadar 聚合" : "手动录入"}</p>
+      {orderedKeys.map((key) => {
+        const list = groups[key];
+        if (list.length === 0) return null;
+        const meta = SOURCE_GROUP_META[key];
+        const enabledCount = list.filter((p) => p.enabled).length;
+        return (
+          <div key={key} className="space-y-1.5">
+            <div className="flex items-center gap-2 pt-1">
+              <span className={`rounded px-2 py-0.5 text-[11px] font-medium ${meta.badge}`}>{meta.label}</span>
+              <span className="text-[11px] text-gray-400">{enabledCount}/{list.length} · {meta.hint}</span>
+            </div>
+            {list.map(renderRow)}
           </div>
-          <label className="relative inline-flex cursor-pointer items-center">
-            <input
-              type="checkbox"
-              checked={p.enabled}
-              disabled={saving === p.id}
-              onChange={() => toggleEnabled(p)}
-              className="peer sr-only"
-            />
-            <div className="h-5 w-9 rounded-full bg-gray-200 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:bg-green-500 peer-checked:after:translate-x-4"></div>
-          </label>
-          <button onClick={() => setEditing(p)} className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
-            <Edit2 className="h-3.5 w-3.5" />
-          </button>
-          <button onClick={() => deletePlatform(p)} className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600">
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      ))}
+        );
+      })}
       {(editing || creating) && (
         <PlatformFormModal
           initial={editing}
