@@ -25,7 +25,7 @@ const PROVIDER_LABEL: Record<Provider, string> = {
 
 const DEFAULTS: Record<Provider, { model: string; base_url: string }> = {
   claude: { model: "claude-opus-4-6", base_url: "" },
-  qwen: { model: "qwen-plus", base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+  qwen: { model: "qwen3.6-plus", base_url: "https://coding.dashscope.aliyuncs.com/v1" },
   openai_compat: { model: "", base_url: "" },
 };
 

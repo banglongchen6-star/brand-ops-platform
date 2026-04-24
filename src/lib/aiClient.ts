@@ -14,7 +14,7 @@ export interface AIConfig {
 
 export const PROVIDER_DEFAULTS: Record<AIConfig["provider"], { model: string; baseUrl: string }> = {
   claude: { model: "claude-opus-4-6", baseUrl: "" },
-  qwen: { model: "qwen-plus", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+  qwen: { model: "qwen3.6-plus", baseUrl: "https://coding.dashscope.aliyuncs.com/v1" },
   openai_compat: { model: "", baseUrl: "" },
 };
 
