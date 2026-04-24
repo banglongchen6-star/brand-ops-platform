@@ -1,29 +1,41 @@
 "use client";
 
 /* eslint-disable @next/next/no-img-element */
-// 内容运营工作台 —— 前端示意模板（纯静态假数据，不接后端）
+// 内容运营工作台 —— Phase 1：平台 + 关键词接入 DB，其余仍为静态原型
 
-import { useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import {
   Flame, Sparkles, ShieldCheck, BarChart3,
   ArrowLeft, Settings, Bell, Target,
   Search, RefreshCw, LayoutGrid, List, CheckSquare,
   Star, Brain, Plus, Eye, ExternalLink, ChevronDown, ChevronUp,
-  ThumbsUp, Edit2, Trash2, X, Clock,
+  ThumbsUp, Edit2, Trash2, X, Clock, Loader2,
 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
-// ── Mock Data ────────────────────────────────────────────────────────────────
+// ── Types (match DB) ─────────────────────────────────────────────────────────
 
-const mockPlatforms = [
-  { slug: "douyin", name: "抖音", color: "bg-black text-white", enabled: true, source: "DailyHot" },
-  { slug: "xiaohongshu", name: "小红书", color: "bg-rose-500 text-white", enabled: true, source: "手动" },
-  { slug: "weibo", name: "微博", color: "bg-orange-500 text-white", enabled: true, source: "DailyHot" },
-  { slug: "bilibili", name: "B站", color: "bg-pink-400 text-white", enabled: true, source: "DailyHot" },
-  { slug: "zhihu", name: "知乎", color: "bg-blue-500 text-white", enabled: true, source: "DailyHot" },
-  { slug: "shipinhao", name: "视频号", color: "bg-green-500 text-white", enabled: false, source: "手动" },
-  { slug: "weixin", name: "公众号", color: "bg-emerald-600 text-white", enabled: false, source: "手动" },
-];
+interface Platform {
+  id: string;
+  slug: string;
+  name: string;
+  color_class: string;
+  source: "dailyhot" | "manual";
+  enabled: boolean;
+  sort_order: number;
+  link_format: string | null;
+}
+
+interface Keyword {
+  id: string;
+  category: "music" | "brand" | "custom" | "negative";
+  keyword: string;
+  weight: number;
+  enabled: boolean;
+}
+
+// ── Mock data（Phase 2 起会替换为 DB 拉取） ──────────────────────────────────
 
 const mockTrends = [
   {
@@ -81,22 +93,12 @@ const mockTropes = [
   { id: "e2", category: "emotion", title: "羡慕 + 向往", desc: "普通人也能做到", usage: 6 },
 ];
 
-const mockKeywords = [
-  { cat: "music", kw: "音乐", weight: 10 },
-  { cat: "music", kw: "乐器", weight: 10 },
-  { cat: "music", kw: "钢琴", weight: 9 },
-  { cat: "music", kw: "吉他", weight: 9 },
-  { cat: "music", kw: "唱", weight: 6 },
-  { cat: "music", kw: "歌", weight: 6 },
-  { cat: "brand", kw: "音乐密码", weight: 10 },
-  { cat: "custom", kw: "智能乐器", weight: 8 },
-];
-
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 type TabKey = "trends" | "create" | "review" | "analytics";
 type SubTab = "live" | "starred" | "hitlib" | "tropes" | "manual" | "history";
 type Density = "card" | "list";
+type QuickPanel = null | "platforms" | "keywords" | "pool" | "general";
 
 const mainTabs: { key: TabKey; label: string; icon: typeof Flame }[] = [
   { key: "trends", label: "热点发现", icon: Flame },
@@ -114,11 +116,23 @@ const subTabs: { key: SubTab; label: string; icon: typeof Flame }[] = [
   { key: "history", label: "历史", icon: Clock },
 ];
 
-type QuickPanel = null | "platforms" | "keywords" | "pool" | "general";
-
 export default function ContentWorkspacePage() {
   const [activeTab, setActiveTab] = useState<TabKey>("trends");
   const [panel, setPanel] = useState<QuickPanel>(null);
+  const [platforms, setPlatforms] = useState<Platform[]>([]);
+  const [loadingPlatforms, setLoadingPlatforms] = useState(true);
+
+  const loadPlatforms = useCallback(async () => {
+    setLoadingPlatforms(true);
+    const { data, error } = await supabase
+      .from("content_platforms")
+      .select("*")
+      .order("sort_order", { ascending: true });
+    if (!error && data) setPlatforms(data as Platform[]);
+    setLoadingPlatforms(false);
+  }, []);
+
+  useEffect(() => { loadPlatforms(); }, [loadPlatforms]);
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -165,25 +179,52 @@ export default function ContentWorkspacePage() {
       </div>
 
       {/* ── Tab Content ──────────────────────────────────────────────── */}
-      {activeTab === "trends" && <TrendsTab onOpenPanel={setPanel} />}
+      {activeTab === "trends" && (
+        <TrendsTab platforms={platforms} loadingPlatforms={loadingPlatforms} onOpenPanel={setPanel} />
+      )}
       {activeTab === "create" && <Placeholder label="✨ AI 创作区" />}
       {activeTab === "review" && <Placeholder label="✅ 审核发布" />}
       {activeTab === "analytics" && <Placeholder label="📊 内容复盘" />}
 
-      {panel && <QuickPanelModal panel={panel} onClose={() => setPanel(null)} />}
+      {panel && (
+        <QuickPanelModal
+          panel={panel}
+          onClose={() => setPanel(null)}
+          platforms={platforms}
+          onPlatformsChanged={loadPlatforms}
+        />
+      )}
     </div>
   );
 }
 
 // ── 热点发现 Tab ─────────────────────────────────────────────────────────────
 
-function TrendsTab({ onOpenPanel }: { onOpenPanel: (p: QuickPanel) => void }) {
+function TrendsTab({
+  platforms,
+  loadingPlatforms,
+  onOpenPanel,
+}: {
+  platforms: Platform[];
+  loadingPlatforms: boolean;
+  onOpenPanel: (p: QuickPanel) => void;
+}) {
   const [subTab, setSubTab] = useState<SubTab>("live");
   const [density, setDensity] = useState<Density>("card");
-  const [activePlatforms, setActivePlatforms] = useState<string[]>(["douyin", "bilibili", "weibo", "zhihu"]);
+  const enabledPlatforms = platforms.filter((p) => p.enabled);
+  const [activeSlugs, setActiveSlugs] = useState<string[] | null>(null);
   const [musicFilter, setMusicFilter] = useState(true);
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // 默认选中所有启用平台
+  useEffect(() => {
+    if (activeSlugs === null && enabledPlatforms.length > 0) {
+      setActiveSlugs(enabledPlatforms.map((p) => p.slug));
+    }
+  }, [enabledPlatforms, activeSlugs]);
+
+  const selected = activeSlugs ?? [];
 
   return (
     <>
@@ -215,7 +256,7 @@ function TrendsTab({ onOpenPanel }: { onOpenPanel: (p: QuickPanel) => void }) {
         >
           📡 平台管理
           <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] text-gray-500">
-            {mockPlatforms.filter((p) => p.enabled).length}/{mockPlatforms.length}
+            {enabledPlatforms.length}/{platforms.length}
           </span>
         </button>
         <button
@@ -223,7 +264,6 @@ function TrendsTab({ onOpenPanel }: { onOpenPanel: (p: QuickPanel) => void }) {
           className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
         >
           🔤 关键词库
-          <span className="rounded-full bg-white px-1.5 py-0.5 text-[10px] text-gray-500">{mockKeywords.length}</span>
         </button>
         <button
           onClick={() => onOpenPanel("pool")}
@@ -242,14 +282,21 @@ function TrendsTab({ onOpenPanel }: { onOpenPanel: (p: QuickPanel) => void }) {
           <div className="mb-3 rounded-xl border border-gray-200 bg-white p-3">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs text-gray-500">平台：</span>
-              {mockPlatforms.filter((p) => p.enabled).map((p) => {
-                const on = activePlatforms.includes(p.slug);
+              {loadingPlatforms ? (
+                <Loader2 className="h-3 w-3 animate-spin text-gray-400" />
+              ) : enabledPlatforms.length === 0 ? (
+                <span className="text-xs text-gray-400">暂无启用平台，请到「平台管理」开启</span>
+              ) : enabledPlatforms.map((p) => {
+                const on = selected.includes(p.slug);
                 return (
                   <button
                     key={p.slug}
-                    onClick={() => setActivePlatforms((prev) => on ? prev.filter((x) => x !== p.slug) : [...prev, p.slug])}
+                    onClick={() => setActiveSlugs((prev) => {
+                      const cur = prev ?? [];
+                      return on ? cur.filter((x) => x !== p.slug) : [...cur, p.slug];
+                    })}
                     className={`rounded-full px-2.5 py-1 text-xs transition ${
-                      on ? p.color : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+                      on ? p.color_class : "bg-gray-100 text-gray-500 hover:bg-gray-200"
                     }`}
                   >
                     {p.name}
@@ -300,17 +347,17 @@ function TrendsTab({ onOpenPanel }: { onOpenPanel: (p: QuickPanel) => void }) {
             </div>
           </div>
 
-          {/* Content list */}
+          {/* Content list (mock, Phase 2 将接入 DB) */}
           {density === "card" ? (
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
               {mockTrends
                 .filter((t) => subTab !== "starred" || t.starred)
                 .filter((t) => subTab !== "hitlib" || t.analyzed)
-                .filter((t) => activePlatforms.includes(t.platform))
+                .filter((t) => selected.includes(t.platform))
                 .filter((t) => !musicFilter || t.music_score >= 70)
                 .filter((t) => !search.trim() || t.title.toLowerCase().includes(search.toLowerCase()))
                 .map((t) => (
-                  <TrendCard key={t.id} t={t} expanded={expandedId === t.id} onToggle={() => setExpandedId(expandedId === t.id ? null : t.id)} />
+                  <TrendCard key={t.id} t={t} platforms={platforms} expanded={expandedId === t.id} onToggle={() => setExpandedId(expandedId === t.id ? null : t.id)} />
                 ))}
             </div>
           ) : (
@@ -330,14 +377,14 @@ function TrendsTab({ onOpenPanel }: { onOpenPanel: (p: QuickPanel) => void }) {
                   {mockTrends
                     .filter((t) => subTab !== "starred" || t.starred)
                     .filter((t) => subTab !== "hitlib" || t.analyzed)
-                    .filter((t) => activePlatforms.includes(t.platform))
+                    .filter((t) => selected.includes(t.platform))
                     .filter((t) => !musicFilter || t.music_score >= 70)
                     .filter((t) => !search.trim() || t.title.toLowerCase().includes(search.toLowerCase()))
                     .map((t) => {
-                      const plat = mockPlatforms.find((p) => p.slug === t.platform)!;
+                      const plat = platforms.find((p) => p.slug === t.platform);
                       return (
                         <tr key={t.id} className="hover:bg-gray-50">
-                          <td className="px-3 py-2"><span className={`rounded px-1.5 py-0.5 text-xs ${plat.color}`}>{plat.name}</span></td>
+                          <td className="px-3 py-2"><span className={`rounded px-1.5 py-0.5 text-xs ${plat?.color_class ?? "bg-gray-200"}`}>{plat?.name ?? t.platform}</span></td>
                           <td className="px-3 py-2 max-w-md truncate font-medium text-gray-900">{t.title}</td>
                           <td className="px-3 py-2 text-right text-xs text-gray-600">{t.hot?.toLocaleString() ?? "—"}</td>
                           <td className="px-3 py-2 text-right"><ScoreBar score={t.music_score} /></td>
@@ -364,15 +411,24 @@ function TrendsTab({ onOpenPanel }: { onOpenPanel: (p: QuickPanel) => void }) {
 
 // ── 单条热点卡片 ─────────────────────────────────────────────────────────────
 
-function TrendCard({ t, expanded, onToggle }: { t: typeof mockTrends[0]; expanded: boolean; onToggle: () => void }) {
-  const plat = mockPlatforms.find((p) => p.slug === t.platform)!;
+function TrendCard({
+  t, platforms, expanded, onToggle,
+}: {
+  t: typeof mockTrends[0];
+  platforms: Platform[];
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const plat = platforms.find((p) => p.slug === t.platform);
+  const platColor = plat?.color_class ?? "bg-gray-200 text-gray-700";
+  const platName = plat?.name ?? t.platform;
   return (
     <div className={`group overflow-hidden rounded-xl border bg-white transition hover:shadow-md ${expanded ? "border-purple-300" : "border-gray-200"}`}>
       {t.cover && (
         <div className="relative h-40 overflow-hidden bg-gray-100">
           <img src={t.cover} alt={t.title} className="h-full w-full object-cover" />
           <div className="absolute left-2 top-2 flex gap-1">
-            <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${plat.color}`}>{plat.name}</span>
+            <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${platColor}`}>{platName}</span>
             {t.rank && <span className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">#{t.rank}</span>}
             {t.manual && <span className="rounded bg-gray-700 px-1.5 py-0.5 text-[10px] text-white">手动</span>}
           </div>
@@ -386,7 +442,7 @@ function TrendCard({ t, expanded, onToggle }: { t: typeof mockTrends[0]; expande
       <div className="p-3">
         {!t.cover && (
           <div className="mb-2 flex gap-1">
-            <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${plat.color}`}>{plat.name}</span>
+            <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${platColor}`}>{platName}</span>
             {t.rank && <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[10px] text-white">#{t.rank}</span>}
           </div>
         )}
@@ -527,143 +583,423 @@ function ManualInputView() {
   );
 }
 
-// ── 设置弹窗 ─────────────────────────────────────────────────────────────────
+// ── 快捷面板弹窗 ────────────────────────────────────────────────────────────
 
-function QuickPanelModal({ panel, onClose }: { panel: Exclude<QuickPanel, null>; onClose: () => void }) {
+function QuickPanelModal({
+  panel, onClose, platforms, onPlatformsChanged,
+}: {
+  panel: Exclude<QuickPanel, null>;
+  onClose: () => void;
+  platforms: Platform[];
+  onPlatformsChanged: () => void;
+}) {
   const titles: Record<Exclude<QuickPanel, null>, string> = {
     platforms: "📡 平台管理",
     keywords: "🔤 关键词库",
     pool: "🎯 候选池",
     general: "⚙️ 通用设置",
   };
-  const tab = panel;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
       <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
-          <h2 className="flex items-center gap-2 text-lg font-semibold">
-            {titles[panel]}
-          </h2>
+          <h2 className="flex items-center gap-2 text-lg font-semibold">{titles[panel]}</h2>
           <button onClick={onClose} className="rounded p-1 hover:bg-gray-100"><X className="h-4 w-4" /></button>
         </div>
 
         <div className="max-h-[60vh] overflow-y-auto p-5">
-          {tab === "platforms" && (
-            <div className="space-y-2">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-xs text-gray-500">管理要聚合的平台、启停和来源方式</p>
-                <button className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-50">
-                  <Plus className="h-3 w-3" />新增平台
-                </button>
-              </div>
-              {mockPlatforms.map((p) => (
-                <div key={p.slug} className="flex items-center gap-3 rounded-lg border border-gray-200 p-3">
-                  <span className={`rounded px-2 py-1 text-xs ${p.color}`}>{p.name}</span>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-900">{p.name} <span className="ml-1 text-xs text-gray-400">({p.slug})</span></p>
-                    <p className="text-xs text-gray-500">来源：{p.source}</p>
-                  </div>
-                  <label className="relative inline-flex cursor-pointer items-center">
-                    <input type="checkbox" defaultChecked={p.enabled} className="peer sr-only" />
-                    <div className="h-5 w-9 rounded-full bg-gray-200 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:bg-green-500 peer-checked:after:translate-x-4"></div>
-                  </label>
-                  <button className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"><Edit2 className="h-3.5 w-3.5" /></button>
-                  <button className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button>
-                </div>
-              ))}
-            </div>
+          {panel === "platforms" && (
+            <PlatformsPanel platforms={platforms} onChanged={onPlatformsChanged} />
           )}
-          {tab === "keywords" && (
-            <div>
-              <div className="mb-3 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium text-gray-900">音乐相关关键词库（团队共享）</p>
-                  <p className="text-xs text-gray-500">用于热榜自动过滤。权重越高越优先匹配。</p>
-                </div>
-                <button className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-50">
-                  <Plus className="h-3 w-3" />添加词
-                </button>
-              </div>
-              <div className="space-y-1">
-                {["music", "brand", "custom"].map((cat) => (
-                  <div key={cat}>
-                    <p className="mb-1 text-xs font-semibold text-gray-600">
-                      {cat === "music" ? "🎵 音乐类" : cat === "brand" ? "🏷️ 自家品牌" : "⭐ 自定义"}
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {mockKeywords.filter((k) => k.cat === cat).map((k) => (
-                        <span key={k.kw} className="group inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs">
-                          {k.kw}
-                          <span className="rounded bg-gray-200 px-1 text-[10px] text-gray-600">{k.weight}</span>
-                          <button className="ml-0.5 text-gray-400 opacity-0 transition hover:text-red-500 group-hover:opacity-100">
-                            <X className="h-2.5 w-2.5" />
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {tab === "pool" && (
-            <div className="space-y-3">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-xs text-gray-500">候选池保存的热点/爆款，可直接在「AI 创作区」引用生成选题</p>
-                <div className="flex gap-1 rounded-lg border border-gray-200 p-0.5 text-xs">
-                  <button className="rounded-md bg-gray-900 px-2 py-0.5 text-white">个人</button>
-                  <button className="rounded-md px-2 py-0.5 text-gray-600 hover:bg-gray-100">团队</button>
-                </div>
-              </div>
-              {[
-                { t: "用AI写一首送给妈妈的歌，全场哭了", p: "抖音", tag: "热点" },
-                { t: "我妈50岁学吉他三个月，弹给爸爸听", p: "小红书", tag: "爆款" },
-                { t: "盲选！你能听出是真人还是AI唱的吗", p: "抖音", tag: "热点" },
-                { t: "【翻唱】周杰伦《晴天》指弹吉他版", p: "B站", tag: "爆款" },
-                { t: "零基础多久能学会一首歌？", p: "知乎", tag: "热点" },
-              ].map((x, i) => (
-                <div key={i} className="flex items-center gap-3 rounded-lg border border-gray-200 p-3 hover:border-amber-300">
-                  <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600">{x.p}</span>
-                  <span className="flex-1 truncate text-sm text-gray-900">{x.t}</span>
-                  <span className={`rounded px-1.5 py-0.5 text-[10px] ${x.tag === "爆款" ? "bg-purple-50 text-purple-700" : "bg-rose-50 text-rose-700"}`}>{x.tag}</span>
-                  <button className="rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700 hover:bg-amber-100">→ 去创作</button>
-                  <button className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-500"><X className="h-3 w-3" /></button>
-                </div>
-              ))}
-            </div>
-          )}
-          {tab === "general" && (
-            <div className="space-y-4">
-              <SettingRow label="自动刷新间隔">
-                <select className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:border-gray-900 focus:outline-none">
-                  <option>关闭</option><option>5 分钟</option><option>15 分钟</option><option>30 分钟</option><option>1 小时</option>
-                </select>
-              </SettingRow>
-              <SettingRow label="默认卡片密度">
-                <select className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:border-gray-900 focus:outline-none">
-                  <option>大卡片</option><option>紧凑列表</option>
-                </select>
-              </SettingRow>
-              <SettingRow label="候选池默认归属">
-                <select className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:border-gray-900 focus:outline-none">
-                  <option>个人私有</option><option>团队共享</option>
-                </select>
-              </SettingRow>
-              <SettingRow label="新热点桌面通知">
-                <label className="relative inline-flex cursor-pointer items-center">
-                  <input type="checkbox" className="peer sr-only" />
-                  <div className="h-5 w-9 rounded-full bg-gray-200 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:bg-green-500 peer-checked:after:translate-x-4"></div>
-                </label>
-              </SettingRow>
-            </div>
-          )}
+          {panel === "keywords" && <KeywordsPanel />}
+          {panel === "pool" && <PoolPanelMock />}
+          {panel === "general" && <GeneralPanelMock />}
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-5 py-3">
           <button onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-50">关闭</button>
-          <button className="rounded-lg bg-gray-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-gray-800">保存</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── 平台管理面板（真实 CRUD） ───────────────────────────────────────────────
+
+const COLOR_PRESETS = [
+  "bg-black text-white",
+  "bg-rose-500 text-white",
+  "bg-orange-500 text-white",
+  "bg-pink-400 text-white",
+  "bg-blue-500 text-white",
+  "bg-green-500 text-white",
+  "bg-emerald-600 text-white",
+  "bg-purple-500 text-white",
+  "bg-amber-500 text-white",
+  "bg-gray-700 text-white",
+];
+
+function PlatformsPanel({ platforms, onChanged }: { platforms: Platform[]; onChanged: () => void }) {
+  const [editing, setEditing] = useState<Platform | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [saving, setSaving] = useState<string | null>(null);
+
+  async function toggleEnabled(p: Platform) {
+    setSaving(p.id);
+    const { error } = await supabase
+      .from("content_platforms")
+      .update({ enabled: !p.enabled, updated_at: new Date().toISOString() })
+      .eq("id", p.id);
+    setSaving(null);
+    if (error) alert("切换失败：" + error.message);
+    else onChanged();
+  }
+
+  async function deletePlatform(p: Platform) {
+    if (!confirm(`确认删除平台「${p.name}」？已有热点数据不会被删除，但会无法显示。`)) return;
+    const { error } = await supabase.from("content_platforms").delete().eq("id", p.id);
+    if (error) alert("删除失败：" + error.message);
+    else onChanged();
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-xs text-gray-500">管理要聚合的平台、启停和来源方式</p>
+        <button
+          onClick={() => setCreating(true)}
+          className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-50"
+        >
+          <Plus className="h-3 w-3" />新增平台
+        </button>
+      </div>
+      {platforms.length === 0 && <p className="text-center text-xs text-gray-400 py-8">暂无平台，请点「新增平台」</p>}
+      {platforms.map((p) => (
+        <div key={p.id} className="flex items-center gap-3 rounded-lg border border-gray-200 p-3">
+          <span className={`rounded px-2 py-1 text-xs ${p.color_class}`}>{p.name}</span>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-gray-900">{p.name} <span className="ml-1 text-xs text-gray-400">({p.slug})</span></p>
+            <p className="text-xs text-gray-500">来源：{p.source === "dailyhot" ? "DailyHot 自动" : "手动录入"}</p>
+          </div>
+          <label className="relative inline-flex cursor-pointer items-center">
+            <input
+              type="checkbox"
+              checked={p.enabled}
+              disabled={saving === p.id}
+              onChange={() => toggleEnabled(p)}
+              className="peer sr-only"
+            />
+            <div className="h-5 w-9 rounded-full bg-gray-200 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:bg-green-500 peer-checked:after:translate-x-4"></div>
+          </label>
+          <button onClick={() => setEditing(p)} className="rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700">
+            <Edit2 className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={() => deletePlatform(p)} className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+      {(editing || creating) && (
+        <PlatformFormModal
+          initial={editing}
+          onClose={() => { setEditing(null); setCreating(false); }}
+          onSaved={() => { setEditing(null); setCreating(false); onChanged(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PlatformFormModal({
+  initial, onClose, onSaved,
+}: {
+  initial: Platform | null;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    slug: initial?.slug ?? "",
+    name: initial?.name ?? "",
+    color_class: initial?.color_class ?? COLOR_PRESETS[0],
+    source: initial?.source ?? "manual" as "dailyhot" | "manual",
+    enabled: initial?.enabled ?? true,
+    sort_order: initial?.sort_order ?? 99,
+    link_format: initial?.link_format ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!form.slug.trim() || !form.name.trim()) {
+      alert("slug 和 名称 必填");
+      return;
+    }
+    setSaving(true);
+    const payload = {
+      ...form,
+      slug: form.slug.trim().toLowerCase(),
+      name: form.name.trim(),
+      updated_at: new Date().toISOString(),
+    };
+    let error;
+    if (initial) {
+      ({ error } = await supabase.from("content_platforms").update(payload).eq("id", initial.id));
+    } else {
+      ({ error } = await supabase.from("content_platforms").insert(payload));
+    }
+    setSaving(false);
+    if (error) alert("保存失败：" + error.message);
+    else onSaved();
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-base font-semibold">{initial ? "编辑平台" : "新增平台"}</h3>
+          <button onClick={onClose} className="rounded p-1 hover:bg-gray-100"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-xs text-gray-600">Slug（英文唯一标识，如 douyin）</label>
+            <input
+              value={form.slug}
+              onChange={(e) => setForm({ ...form, slug: e.target.value })}
+              disabled={!!initial}
+              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-gray-900 focus:outline-none disabled:bg-gray-50"
+              placeholder="douyin"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-gray-600">显示名</label>
+            <input
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-gray-900 focus:outline-none"
+              placeholder="抖音"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-gray-600">颜色样式</label>
+            <div className="flex flex-wrap gap-1.5">
+              {COLOR_PRESETS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setForm({ ...form, color_class: c })}
+                  className={`rounded px-2 py-1 text-xs ${c} ${form.color_class === c ? "ring-2 ring-offset-1 ring-gray-900" : ""}`}
+                >
+                  样例
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-gray-600">数据来源</label>
+            <select
+              value={form.source}
+              onChange={(e) => setForm({ ...form, source: e.target.value as "dailyhot" | "manual" })}
+              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-gray-900 focus:outline-none"
+            >
+              <option value="dailyhot">DailyHot 自动拉取</option>
+              <option value="manual">仅手动录入</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-gray-600">排序（数字越小越靠前）</label>
+            <input
+              type="number"
+              value={form.sort_order}
+              onChange={(e) => setForm({ ...form, sort_order: Number(e.target.value) })}
+              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-gray-900 focus:outline-none"
+            />
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-50">取消</button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded-lg bg-gray-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-60"
+          >
+            {saving ? "保存中..." : "保存"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 关键词库面板（真实 CRUD） ──────────────────────────────────────────────
+
+function KeywordsPanel() {
+  const [keywords, setKeywords] = useState<Keyword[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newKw, setNewKw] = useState("");
+  const [newCat, setNewCat] = useState<Keyword["category"]>("music");
+  const [newWeight, setNewWeight] = useState(5);
+  const [adding, setAdding] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("content_keyword_library")
+      .select("*")
+      .order("category", { ascending: true })
+      .order("weight", { ascending: false });
+    if (!error && data) setKeywords(data as Keyword[]);
+    setLoading(false);
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  async function add() {
+    if (!newKw.trim()) return;
+    setAdding(true);
+    const { error } = await supabase.from("content_keyword_library").insert({
+      keyword: newKw.trim(),
+      category: newCat,
+      weight: newWeight,
+    });
+    setAdding(false);
+    if (error) {
+      if (error.message.includes("duplicate")) alert("该词已存在");
+      else alert("添加失败：" + error.message);
+      return;
+    }
+    setNewKw("");
+    load();
+  }
+
+  async function remove(k: Keyword) {
+    if (!confirm(`删除关键词「${k.keyword}」？`)) return;
+    const { error } = await supabase.from("content_keyword_library").delete().eq("id", k.id);
+    if (error) alert("删除失败：" + error.message);
+    else load();
+  }
+
+  const catLabels: Record<Keyword["category"], string> = {
+    music: "🎵 音乐类",
+    brand: "🏷️ 自家品牌",
+    custom: "⭐ 自定义",
+    negative: "🚫 负向词（排除）",
+  };
+
+  if (loading) {
+    return <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-gray-400" /></div>;
+  }
+
+  return (
+    <div>
+      <div className="mb-3">
+        <p className="text-sm font-medium text-gray-900">音乐相关关键词库（团队共享）</p>
+        <p className="text-xs text-gray-500">用于热榜自动打分。权重越高越优先匹配，负向词会扣分。</p>
+      </div>
+
+      {/* 添加框 */}
+      <div className="mb-4 flex items-center gap-2 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-2">
+        <select
+          value={newCat}
+          onChange={(e) => setNewCat(e.target.value as Keyword["category"])}
+          className="rounded border border-gray-200 bg-white px-2 py-1 text-xs"
+        >
+          <option value="music">音乐类</option>
+          <option value="brand">品牌</option>
+          <option value="custom">自定义</option>
+          <option value="negative">负向</option>
+        </select>
+        <input
+          value={newKw}
+          onChange={(e) => setNewKw(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") add(); }}
+          placeholder="输入关键词，回车添加"
+          className="flex-1 rounded border border-gray-200 bg-white px-2 py-1 text-xs focus:border-gray-900 focus:outline-none"
+        />
+        <div className="flex items-center gap-1 text-xs text-gray-500">
+          权重
+          <input
+            type="number"
+            min={1}
+            max={10}
+            value={newWeight}
+            onChange={(e) => setNewWeight(Math.max(1, Math.min(10, Number(e.target.value))))}
+            className="w-12 rounded border border-gray-200 bg-white px-1 py-0.5 text-center"
+          />
+        </div>
+        <button
+          onClick={add}
+          disabled={adding || !newKw.trim()}
+          className="rounded-md bg-gray-900 px-2.5 py-1 text-xs text-white hover:bg-gray-800 disabled:opacity-50"
+        >
+          {adding ? "..." : "添加"}
+        </button>
+      </div>
+
+      {/* 分组显示 */}
+      <div className="space-y-3">
+        {(["music", "brand", "custom", "negative"] as const).map((cat) => {
+          const items = keywords.filter((k) => k.category === cat);
+          if (items.length === 0) return null;
+          return (
+            <div key={cat}>
+              <p className="mb-1 text-xs font-semibold text-gray-600">{catLabels[cat]}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {items.map((k) => (
+                  <span key={k.id} className="group inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs">
+                    {k.keyword}
+                    <span className="rounded bg-gray-200 px-1 text-[10px] text-gray-600">{k.weight}</span>
+                    <button
+                      onClick={() => remove(k)}
+                      className="ml-0.5 text-gray-400 opacity-0 transition hover:text-red-500 group-hover:opacity-100"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        {keywords.length === 0 && <p className="text-center text-xs text-gray-400 py-4">暂无关键词</p>}
+      </div>
+    </div>
+  );
+}
+
+// ── 候选池 / 通用 面板（仍为 mock，Phase 4 接入） ────────────────────────────
+
+function PoolPanelMock() {
+  return (
+    <div className="space-y-3">
+      <div className="mb-2 flex items-center justify-between">
+        <p className="text-xs text-gray-500">候选池保存的热点/爆款，可直接在「AI 创作区」引用生成选题</p>
+        <div className="flex gap-1 rounded-lg border border-gray-200 p-0.5 text-xs">
+          <button className="rounded-md bg-gray-900 px-2 py-0.5 text-white">个人</button>
+          <button className="rounded-md px-2 py-0.5 text-gray-600 hover:bg-gray-100">团队</button>
+        </div>
+      </div>
+      <p className="py-6 text-center text-xs text-gray-400">（Phase 4 接入真实数据）</p>
+    </div>
+  );
+}
+
+function GeneralPanelMock() {
+  return (
+    <div className="space-y-4">
+      <SettingRow label="自动刷新间隔">
+        <select className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:border-gray-900 focus:outline-none">
+          <option>关闭</option><option>5 分钟</option><option>15 分钟</option><option>30 分钟</option><option>1 小时</option>
+        </select>
+      </SettingRow>
+      <SettingRow label="默认卡片密度">
+        <select className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:border-gray-900 focus:outline-none">
+          <option>大卡片</option><option>紧凑列表</option>
+        </select>
+      </SettingRow>
+      <SettingRow label="候选池默认归属">
+        <select className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:border-gray-900 focus:outline-none">
+          <option>个人私有</option><option>团队共享</option>
+        </select>
+      </SettingRow>
+      <p className="text-[11px] text-gray-400">（通用设置 Phase 4 接入，暂不保存）</p>
     </div>
   );
 }
@@ -713,7 +1049,7 @@ function Placeholder({ label }: { label: string }) {
   return (
     <div className="flex h-96 flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 bg-white text-gray-400">
       <p className="mb-2 text-lg font-medium">{label}</p>
-      <p className="text-xs">此板块将在 "热点发现" 完成后启动开发</p>
+      <p className="text-xs">此板块将在 &quot;热点发现&quot; 完成后启动开发</p>
     </div>
   );
 }
