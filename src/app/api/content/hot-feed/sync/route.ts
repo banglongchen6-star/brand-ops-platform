@@ -151,43 +151,36 @@ export async function POST() {
   if (kErr) return Response.json({ error: kErr.message }, { status: 500 });
 
   const kwList = (keywords ?? []) as Keyword[];
-  const result: { platform: string; source: string; fetched: number; upserted: number; error?: string }[] = [];
 
-  for (const p of (platforms ?? []) as Platform[]) {
-    try {
+  // 并行拉取所有平台（避免 Vercel 10s 超时）
+  const settled = await Promise.allSettled(
+    (platforms ?? []).map(async (p: Platform) => {
       const { rows, error } = p.source === "trendradar"
         ? await fetchTrendRadar(p, kwList)
         : await fetchDailyHot(p, kwList);
+      return { p, rows, error };
+    })
+  );
 
-      if (error) {
-        result.push({ platform: p.slug, source: p.source, fetched: 0, upserted: 0, error });
-        continue;
-      }
-      if (rows.length === 0) {
-        result.push({ platform: p.slug, source: p.source, fetched: 0, upserted: 0 });
-        continue;
-      }
+  const result: { platform: string; source: string; fetched: number; upserted: number; error?: string }[] = [];
 
-      const { error: upErr, count } = await supabase
-        .from("content_trends")
-        .upsert(rows, {
-          onConflict: "platform_slug,external_id",
-          ignoreDuplicates: false,
-          count: "exact",
-        });
-      if (upErr) {
-        result.push({ platform: p.slug, source: p.source, fetched: rows.length, upserted: 0, error: upErr.message });
-      } else {
-        result.push({ platform: p.slug, source: p.source, fetched: rows.length, upserted: count ?? rows.length });
-      }
-    } catch (e) {
-      result.push({
-        platform: p.slug,
-        source: p.source,
-        fetched: 0,
-        upserted: 0,
-        error: e instanceof Error ? e.message : String(e),
-      });
+  for (const s of settled) {
+    if (s.status === "rejected") {
+      result.push({ platform: "unknown", source: "unknown", fetched: 0, upserted: 0, error: String(s.reason) });
+      continue;
+    }
+    const { p, rows, error } = s.value;
+    if (error || rows.length === 0) {
+      result.push({ platform: p.slug, source: p.source, fetched: 0, upserted: 0, error });
+      continue;
+    }
+    const { error: upErr, count } = await supabase
+      .from("content_trends")
+      .upsert(rows, { onConflict: "platform_slug,external_id", ignoreDuplicates: false, count: "exact" });
+    if (upErr) {
+      result.push({ platform: p.slug, source: p.source, fetched: rows.length, upserted: 0, error: upErr.message });
+    } else {
+      result.push({ platform: p.slug, source: p.source, fetched: rows.length, upserted: count ?? rows.length });
     }
   }
 
