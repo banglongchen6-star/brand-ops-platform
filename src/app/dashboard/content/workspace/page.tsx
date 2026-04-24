@@ -27,7 +27,7 @@ interface Platform {
   slug: string;
   name: string;
   color_class: string;
-  source: "dailyhot" | "manual";
+  source: "dailyhot" | "manual" | "trendradar";
   enabled: boolean;
   sort_order: number;
   link_format: string | null;
@@ -46,7 +46,7 @@ interface Keyword {
 interface Trend {
   id: string;
   platform_slug: string;
-  source_type: "dailyhot" | "manual";
+  source_type: "dailyhot" | "manual" | "trendradar";
   external_id: string | null;
   title: string;
   description: string | null;
@@ -1154,7 +1154,7 @@ function PlatformsPanel({ platforms, onChanged }: { platforms: Platform[]; onCha
           <span className={`rounded px-2 py-1 text-xs ${p.color_class}`}>{p.name}</span>
           <div className="flex-1">
             <p className="text-sm font-medium text-gray-900">{p.name} <span className="ml-1 text-xs text-gray-400">({p.slug})</span></p>
-            <p className="text-xs text-gray-500">来源：{p.source === "dailyhot" ? "DailyHot 自动" : "手动录入"}</p>
+            <p className="text-xs text-gray-500">来源：{p.source === "dailyhot" ? "DailyHot 自动" : p.source === "trendradar" ? "TrendRadar 聚合" : "手动录入"}</p>
           </div>
           <label className="relative inline-flex cursor-pointer items-center">
             <input
@@ -1196,7 +1196,7 @@ function PlatformFormModal({
     slug: initial?.slug ?? "",
     name: initial?.name ?? "",
     color_class: initial?.color_class ?? COLOR_PRESETS[0],
-    source: initial?.source ?? "manual" as "dailyhot" | "manual",
+    source: initial?.source ?? "manual" as "dailyhot" | "manual" | "trendradar",
     enabled: initial?.enabled ?? true,
     sort_order: initial?.sort_order ?? 99,
     link_format: initial?.link_format ?? "",
@@ -1264,10 +1264,11 @@ function PlatformFormModal({
             <label className="mb-1 block text-xs text-gray-600">数据来源</label>
             <select
               value={form.source}
-              onChange={(e) => setForm({ ...form, source: e.target.value as "dailyhot" | "manual" })}
+              onChange={(e) => setForm({ ...form, source: e.target.value as "dailyhot" | "manual" | "trendradar" })}
               className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-gray-900 focus:outline-none"
             >
               <option value="dailyhot">DailyHot 自动拉取</option>
+              <option value="trendradar">TrendRadar 聚合（newsnow）</option>
               <option value="manual">仅手动录入</option>
             </select>
           </div>
