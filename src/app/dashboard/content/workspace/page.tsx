@@ -236,7 +236,7 @@ function TrendsTab({
   });
   const enabledPlatforms = platforms.filter((p) => p.enabled);
   const [activeSlugs, setActiveSlugs] = useState<string[] | null>(null);
-  const [musicFilter, setMusicFilter] = useState(true);
+  const [musicFilter, setMusicFilter] = useState(false);
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [trends, setTrends] = useState<Trend[]>([]);
