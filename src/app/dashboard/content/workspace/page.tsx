@@ -729,14 +729,16 @@ function PlatformFormModal({
   const [saving, setSaving] = useState(false);
 
   async function save() {
-    if (!form.slug.trim() || !form.name.trim()) {
-      alert("slug 和 名称 必填");
+    if (!form.name.trim()) {
+      alert("请填写平台名称");
       return;
     }
     setSaving(true);
+    // 新建时：若未手动指定 slug，用时间戳生成；编辑时保留原 slug
+    const autoSlug = initial ? initial.slug : `p_${Date.now().toString(36)}`;
     const payload = {
       ...form,
-      slug: form.slug.trim().toLowerCase(),
+      slug: (form.slug.trim() || autoSlug).toLowerCase(),
       name: form.name.trim(),
       updated_at: new Date().toISOString(),
     };
@@ -759,16 +761,6 @@ function PlatformFormModal({
           <button onClick={onClose} className="rounded p-1 hover:bg-gray-100"><X className="h-4 w-4" /></button>
         </div>
         <div className="space-y-3">
-          <div>
-            <label className="mb-1 block text-xs text-gray-600">Slug（英文唯一标识，如 douyin）</label>
-            <input
-              value={form.slug}
-              onChange={(e) => setForm({ ...form, slug: e.target.value })}
-              disabled={!!initial}
-              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-gray-900 focus:outline-none disabled:bg-gray-50"
-              placeholder="douyin"
-            />
-          </div>
           <div>
             <label className="mb-1 block text-xs text-gray-600">显示名</label>
             <input
