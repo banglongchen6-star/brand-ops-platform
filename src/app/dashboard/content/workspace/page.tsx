@@ -61,6 +61,23 @@ interface Trend {
   last_seen_at: string;
 }
 
+interface HitFactors {
+  id: string;
+  trend_id: string;
+  hook: string;
+  structure: string;
+  emotion: string;
+  topic_angle: string;
+  audience: string;
+  format: string;
+  replicable_elements: string;
+  adaptation_advice: string;
+  difficulty: number;
+  tags: string[];
+  raw_json: Record<string, unknown> | null;
+  created_at: string;
+}
+
 const mockTropes = [
   { id: "h1", category: "hook", title: '"你以为X要Y年？我用Z天就……"', desc: "打破常识 + 时间反差", usage: 8 },
   { id: "h2", category: "hook", title: '"第一次，真的是第一次"', desc: "首次体验感制造好奇", usage: 5 },
@@ -429,6 +446,7 @@ function TrendsTab({
                     onToggle={() => { setExpandedId(expandedId === t.id ? null : t.id); markRead(t); }}
                     onStar={() => toggleStarred(t)}
                     onAddPool={() => addToPool(t)}
+                    onAnalyzed={() => setTrends((prev) => prev.map((x) => x.id === t.id ? { ...x, analyzed: true, read: true } : x))}
                   />
                 ))}
               </div>
@@ -485,7 +503,7 @@ function TrendsTab({
 // ── 单条热点卡片 ─────────────────────────────────────────────────────────────
 
 function TrendCard({
-  t, platforms, expanded, onToggle, onStar, onAddPool,
+  t, platforms, expanded, onToggle, onStar, onAddPool, onAnalyzed,
 }: {
   t: Trend;
   platforms: Platform[];
@@ -493,7 +511,58 @@ function TrendCard({
   onToggle: () => void;
   onStar: () => void;
   onAddPool: () => void;
+  onAnalyzed: () => void;
 }) {
+  const [factors, setFactors] = useState<HitFactors | null>(null);
+  const [loadingFactors, setLoadingFactors] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+
+  // 展开且已拆解时拉取结果
+  useEffect(() => {
+    if (!expanded || !t.analyzed) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingFactors(true);
+      const { data } = await supabase
+        .from("content_hit_factors")
+        .select("*")
+        .eq("trend_id", t.id)
+        .maybeSingle();
+      if (!cancelled) {
+        setFactors((data as HitFactors) ?? null);
+        setLoadingFactors(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [expanded, t.analyzed, t.id]);
+
+  async function runAnalyze() {
+    setAnalyzing(true);
+    try {
+      const r = await fetch("/api/content/trends/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trend_id: t.id }),
+      });
+      const json = await r.json();
+      if (!r.ok) {
+        alert("拆解失败：" + (json.error ?? r.status));
+      } else {
+        // 重新拉取结果行
+        const { data } = await supabase
+          .from("content_hit_factors")
+          .select("*")
+          .eq("trend_id", t.id)
+          .maybeSingle();
+        setFactors((data as HitFactors) ?? null);
+        onAnalyzed();
+      }
+    } catch (e) {
+      alert("网络错误：" + (e instanceof Error ? e.message : String(e)));
+    }
+    setAnalyzing(false);
+  }
+
   const plat = platforms.find((p) => p.slug === t.platform_slug);
   const platColor = plat?.color_class ?? "bg-gray-200 text-gray-700";
   const platName = plat?.name ?? t.platform_slug;
@@ -566,21 +635,99 @@ function TrendCard({
 
       {expanded && (
         <div className="border-t border-purple-100 bg-gradient-to-br from-purple-50/50 to-white p-3">
-          <div className="mb-2 flex items-center gap-1 text-xs font-semibold text-purple-700">
-            <Sparkles className="h-3 w-3" />AI 拆解结果
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex items-center gap-1 text-xs font-semibold text-purple-700">
+              <Sparkles className="h-3 w-3" />AI 拆解结果
+            </div>
+            {t.analyzed && !analyzing && (
+              <button
+                onClick={runAnalyze}
+                className="text-[10px] text-purple-600 hover:underline"
+              >
+                重新拆解
+              </button>
+            )}
           </div>
-          {t.analyzed ? (
-            <div className="text-xs text-gray-600">（Phase 3 将读取真实拆解结果）</div>
+          {analyzing ? (
+            <div className="flex items-center gap-2 py-4 text-xs text-purple-700">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />Claude 正在拆解，约需 10-20 秒…
+            </div>
+          ) : t.analyzed && loadingFactors ? (
+            <div className="py-4"><Loader2 className="mx-auto h-4 w-4 animate-spin text-gray-400" /></div>
+          ) : t.analyzed && factors ? (
+            <FactorsView f={factors} />
           ) : (
             <div className="space-y-2">
-              <p className="text-xs text-gray-500">该条目尚未拆解</p>
-              <button className="inline-flex items-center gap-1 rounded-md border border-purple-300 bg-white px-2 py-1 text-xs text-purple-700 hover:bg-purple-50">
-                <Sparkles className="h-3 w-3" />立即 AI 拆解（Phase 3）
+              <p className="text-xs text-gray-500">该条目尚未拆解，点下方按钮让 Claude 分析爆点</p>
+              <button
+                onClick={runAnalyze}
+                className="inline-flex items-center gap-1 rounded-md border border-purple-300 bg-white px-2 py-1 text-xs text-purple-700 hover:bg-purple-50"
+              >
+                <Sparkles className="h-3 w-3" />立即 AI 拆解
               </button>
             </div>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ── AI 拆解结果视图 ──────────────────────────────────────────────────────────
+
+function FactorsView({ f }: { f: HitFactors }) {
+  const rows: [string, string][] = [
+    ["🎣 钩子", f.hook],
+    ["🎬 结构", f.structure],
+    ["💖 情绪", f.emotion],
+    ["🎯 切入", f.topic_angle],
+    ["👥 人群", f.audience],
+    ["🎨 形式", f.format],
+  ];
+  const reps = (f.replicable_elements || "").split("\n").filter(Boolean);
+  const adv = (f.adaptation_advice || "").split("\n").filter(Boolean);
+  const sum = (f.raw_json as Record<string, unknown> | null)?.summary as string | undefined;
+  return (
+    <div className="space-y-2 text-xs">
+      {sum && (
+        <div className="rounded-md bg-purple-100/70 px-2 py-1.5 text-purple-900">
+          <b>一句话总结：</b>{sum}
+        </div>
+      )}
+      <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
+        {rows.map(([label, val]) => val && (
+          <div key={label} className="rounded-md border border-purple-100 bg-white/70 px-2 py-1.5">
+            <div className="text-[10px] text-purple-500">{label}</div>
+            <div className="text-gray-700">{val}</div>
+          </div>
+        ))}
+      </div>
+      {reps.length > 0 && (
+        <div className="rounded-md border border-purple-100 bg-white/70 px-2 py-1.5">
+          <div className="mb-1 text-[10px] text-purple-500">✨ 可复用套路</div>
+          <ul className="list-disc space-y-0.5 pl-4 text-gray-700">
+            {reps.map((r, i) => <li key={i}>{r}</li>)}
+          </ul>
+        </div>
+      )}
+      {adv.length > 0 && (
+        <div className="rounded-md border border-amber-200 bg-amber-50/70 px-2 py-1.5">
+          <div className="mb-1 text-[10px] text-amber-700">🎵 音乐密码改编建议</div>
+          <ul className="list-disc space-y-0.5 pl-4 text-gray-700">
+            {adv.map((r, i) => <li key={i}>{r}</li>)}
+          </ul>
+        </div>
+      )}
+      <div className="flex items-center gap-2 text-[10px] text-gray-500">
+        <span>复刻难度：{"⭐".repeat(f.difficulty)}{"☆".repeat(5 - f.difficulty)}</span>
+        {f.tags && f.tags.length > 0 && (
+          <span className="flex flex-wrap gap-1">
+            {f.tags.map((tag) => (
+              <span key={tag} className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-600">#{tag}</span>
+            ))}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
