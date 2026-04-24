@@ -35,54 +35,31 @@ interface Keyword {
   enabled: boolean;
 }
 
-// ── Mock data（Phase 2 起会替换为 DB 拉取） ──────────────────────────────────
+// ── DB Trend Row ─────────────────────────────────────────────────────────────
 
-const mockTrends = [
-  {
-    id: "t1", platform: "douyin", title: "用AI写一首送给妈妈的歌，全场哭了",
-    desc: "抖音话题爆款，AI作曲+亲情共鸣，播放破亿",
-    hot: 12500, rank: 1, author: "@音乐小能人", views: 125000000,
-    cover: "https://picsum.photos/seed/t1/400/240",
-    music_score: 95, starred: true, read: true, analyzed: true,
-  },
-  {
-    id: "t2", platform: "bilibili", title: "【翻唱】周杰伦《晴天》指弹吉他版",
-    desc: "B站热门，一位UP主用智能吉他教程演示",
-    hot: 8900, rank: 3, author: "@琴艺少年",
-    views: 3200000, likes: 210000, comments: 4500,
-    cover: "https://picsum.photos/seed/t2/400/240",
-    music_score: 92, starred: false, read: false, analyzed: false,
-  },
-  {
-    id: "t3", platform: "weibo", title: "#某音乐综艺冠军曝光#",
-    desc: "微博热搜榜 TOP5，娱乐向，周边关注乐器购买",
-    hot: 6700, rank: 5, author: null, views: null,
-    cover: null,
-    music_score: 75, starred: false, read: true, analyzed: false,
-  },
-  {
-    id: "t4", platform: "zhihu", title: "零基础多久能学会一首歌？",
-    desc: "知乎热榜，关于乐器入门的高赞回答",
-    hot: 4200, rank: 12, author: "@音乐老师",
-    music_score: 88, starred: true, read: false, analyzed: true,
-  },
-  {
-    id: "t5", platform: "xiaohongshu", title: "我妈50岁学吉他三个月，弹给爸爸听",
-    desc: "小红书手动录入，情感向爆款",
-    hot: null, rank: null, author: "@张三（录入）",
-    cover: "https://picsum.photos/seed/t5/400/240",
-    music_score: 98, starred: true, read: true, analyzed: true,
-    manual: true,
-  },
-  {
-    id: "t6", platform: "douyin", title: "盲选！你能听出是真人还是AI唱的吗",
-    desc: "音乐互动类短视频，评论区疯狂",
-    hot: 9800, rank: 2, author: "@音乐评测",
-    views: 58000000,
-    cover: "https://picsum.photos/seed/t6/400/240",
-    music_score: 90, starred: false, read: false, analyzed: false,
-  },
-];
+interface Trend {
+  id: string;
+  platform_slug: string;
+  source_type: "dailyhot" | "manual";
+  external_id: string | null;
+  title: string;
+  description: string | null;
+  author: string | null;
+  cover_url: string | null;
+  source_url: string | null;
+  rank_on_list: number | null;
+  hot_score: number | null;
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  music_score: number;
+  starred: boolean;
+  read: boolean;
+  analyzed: boolean;
+  first_seen_at: string;
+  last_seen_at: string;
+}
 
 const mockTropes = [
   { id: "h1", category: "hook", title: '"你以为X要Y年？我用Z天就……"', desc: "打破常识 + 时间反差", usage: 8 },
@@ -132,6 +109,7 @@ export default function ContentWorkspacePage() {
     setLoadingPlatforms(false);
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadPlatforms(); }, [loadPlatforms]);
 
   return (
@@ -216,15 +194,78 @@ function TrendsTab({
   const [musicFilter, setMusicFilter] = useState(true);
   const [search, setSearch] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [trends, setTrends] = useState<Trend[]>([]);
+  const [loadingTrends, setLoadingTrends] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
 
   // 默认选中所有启用平台
   useEffect(() => {
     if (activeSlugs === null && enabledPlatforms.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveSlugs(enabledPlatforms.map((p) => p.slug));
     }
   }, [enabledPlatforms, activeSlugs]);
 
   const selected = activeSlugs ?? [];
+
+  const loadTrends = useCallback(async () => {
+    setLoadingTrends(true);
+    const { data, error } = await supabase
+      .from("content_trends")
+      .select("*")
+      .order("last_seen_at", { ascending: false })
+      .limit(200);
+    if (!error && data) setTrends(data as Trend[]);
+    setLoadingTrends(false);
+  }, []);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { loadTrends(); }, [loadTrends]);
+
+  async function syncHotFeed() {
+    setSyncing(true);
+    try {
+      const r = await fetch("/api/content/hot-feed/sync", { method: "POST" });
+      const json = await r.json();
+      if (!r.ok) {
+        alert("同步失败：" + (json.error ?? r.status));
+      } else {
+        setLastSyncAt(json.synced_at);
+        await loadTrends();
+      }
+    } catch (e) {
+      alert("网络错误：" + (e instanceof Error ? e.message : String(e)));
+    }
+    setSyncing(false);
+  }
+
+  async function toggleStarred(t: Trend) {
+    const { error } = await supabase
+      .from("content_trends")
+      .update({ starred: !t.starred })
+      .eq("id", t.id);
+    if (error) alert("操作失败：" + error.message);
+    else setTrends((prev) => prev.map((x) => x.id === t.id ? { ...x, starred: !x.starred } : x));
+  }
+
+  async function markRead(t: Trend) {
+    if (t.read) return;
+    await supabase.from("content_trends").update({ read: true }).eq("id", t.id);
+    setTrends((prev) => prev.map((x) => x.id === t.id ? { ...x, read: true } : x));
+  }
+
+  async function addToPool(t: Trend) {
+    const { error } = await supabase
+      .from("content_candidate_pool")
+      .insert({ trend_id: t.id, scope: "personal" });
+    if (error) {
+      if (error.message.includes("duplicate")) alert("该条目已在候选池");
+      else alert("加入失败：" + error.message);
+    } else {
+      alert("已加入候选池");
+    }
+  }
 
   return (
     <>
@@ -272,7 +313,9 @@ function TrendsTab({
           <Target className="h-3.5 w-3.5" />候选池
           <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] text-white">5</span>
         </button>
-        <span className="ml-auto text-[11px] text-gray-400">上次刷新：2 分钟前</span>
+        <span className="ml-auto text-[11px] text-gray-400">
+          {lastSyncAt ? `上次同步：${new Date(lastSyncAt).toLocaleTimeString("zh-CN")}` : "点右侧「刷新」拉取热榜"}
+        </span>
       </div>
 
       {/* Sub-tab specific content */}
@@ -324,8 +367,13 @@ function TrendsTab({
                 <input type="checkbox" checked={musicFilter} onChange={(e) => setMusicFilter(e.target.checked)} className="rounded" />
                 音乐相关
               </label>
-              <button className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-gray-700 hover:bg-gray-50">
-                <RefreshCw className="h-3 w-3" />刷新
+              <button
+                onClick={syncHotFeed}
+                disabled={syncing}
+                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} />
+                {syncing ? "同步中..." : "刷新"}
               </button>
               <div className="flex rounded-lg border border-gray-200">
                 <button
@@ -347,62 +395,87 @@ function TrendsTab({
             </div>
           </div>
 
-          {/* Content list (mock, Phase 2 将接入 DB) */}
-          {density === "card" ? (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {mockTrends
-                .filter((t) => subTab !== "starred" || t.starred)
-                .filter((t) => subTab !== "hitlib" || t.analyzed)
-                .filter((t) => selected.includes(t.platform))
-                .filter((t) => !musicFilter || t.music_score >= 70)
-                .filter((t) => !search.trim() || t.title.toLowerCase().includes(search.toLowerCase()))
-                .map((t) => (
-                  <TrendCard key={t.id} t={t} platforms={platforms} expanded={expandedId === t.id} onToggle={() => setExpandedId(expandedId === t.id ? null : t.id)} />
+          {/* Content list */}
+          {loadingTrends ? (
+            <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
+          ) : (() => {
+            const filtered = trends
+              .filter((t) => subTab !== "starred" || t.starred)
+              .filter((t) => subTab !== "hitlib" || t.analyzed)
+              .filter((t) => selected.includes(t.platform_slug))
+              .filter((t) => !musicFilter || t.music_score >= 70)
+              .filter((t) => !search.trim() || t.title.toLowerCase().includes(search.toLowerCase()));
+
+            if (filtered.length === 0) {
+              return (
+                <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center">
+                  <p className="text-sm text-gray-500">
+                    {trends.length === 0
+                      ? "还没有热点数据，点右上角「刷新」拉取 DailyHot"
+                      : "没有符合筛选条件的热点"}
+                  </p>
+                </div>
+              );
+            }
+
+            return density === "card" ? (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {filtered.map((t) => (
+                  <TrendCard
+                    key={t.id}
+                    t={t}
+                    platforms={platforms}
+                    expanded={expandedId === t.id}
+                    onToggle={() => { setExpandedId(expandedId === t.id ? null : t.id); markRead(t); }}
+                    onStar={() => toggleStarred(t)}
+                    onAddPool={() => addToPool(t)}
+                  />
                 ))}
-            </div>
-          ) : (
-            <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
-              <table className="min-w-full divide-y divide-gray-100 text-sm">
-                <thead className="bg-gray-50 text-xs uppercase text-gray-500">
-                  <tr>
-                    <th className="px-3 py-2 text-left font-medium">平台</th>
-                    <th className="px-3 py-2 text-left font-medium">标题</th>
-                    <th className="px-3 py-2 text-right font-medium">热度</th>
-                    <th className="px-3 py-2 text-right font-medium">音乐度</th>
-                    <th className="px-3 py-2 text-center font-medium">状态</th>
-                    <th className="px-3 py-2 text-right font-medium">操作</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {mockTrends
-                    .filter((t) => subTab !== "starred" || t.starred)
-                    .filter((t) => subTab !== "hitlib" || t.analyzed)
-                    .filter((t) => selected.includes(t.platform))
-                    .filter((t) => !musicFilter || t.music_score >= 70)
-                    .filter((t) => !search.trim() || t.title.toLowerCase().includes(search.toLowerCase()))
-                    .map((t) => {
-                      const plat = platforms.find((p) => p.slug === t.platform);
+              </div>
+            ) : (
+              <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                <table className="min-w-full divide-y divide-gray-100 text-sm">
+                  <thead className="bg-gray-50 text-xs uppercase text-gray-500">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium">平台</th>
+                      <th className="px-3 py-2 text-left font-medium">标题</th>
+                      <th className="px-3 py-2 text-right font-medium">热度</th>
+                      <th className="px-3 py-2 text-right font-medium">音乐度</th>
+                      <th className="px-3 py-2 text-center font-medium">状态</th>
+                      <th className="px-3 py-2 text-right font-medium">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filtered.map((t) => {
+                      const plat = platforms.find((p) => p.slug === t.platform_slug);
                       return (
                         <tr key={t.id} className="hover:bg-gray-50">
-                          <td className="px-3 py-2"><span className={`rounded px-1.5 py-0.5 text-xs ${plat?.color_class ?? "bg-gray-200"}`}>{plat?.name ?? t.platform}</span></td>
-                          <td className="px-3 py-2 max-w-md truncate font-medium text-gray-900">{t.title}</td>
-                          <td className="px-3 py-2 text-right text-xs text-gray-600">{t.hot?.toLocaleString() ?? "—"}</td>
+                          <td className="px-3 py-2"><span className={`rounded px-1.5 py-0.5 text-xs ${plat?.color_class ?? "bg-gray-200"}`}>{plat?.name ?? t.platform_slug}</span></td>
+                          <td className="px-3 py-2 max-w-md truncate font-medium text-gray-900">
+                            {t.source_url ? (
+                              <a href={t.source_url} target="_blank" rel="noreferrer" className="hover:underline">{t.title}</a>
+                            ) : t.title}
+                          </td>
+                          <td className="px-3 py-2 text-right text-xs text-gray-600">{t.hot_score?.toLocaleString() ?? "—"}</td>
                           <td className="px-3 py-2 text-right"><ScoreBar score={t.music_score} /></td>
                           <td className="px-3 py-2 text-center">
                             {t.starred && <Star className="inline h-3 w-3 fill-amber-400 text-amber-400" />}
                             {t.analyzed && <Brain className="ml-1 inline h-3 w-3 text-purple-500" />}
                           </td>
                           <td className="px-3 py-2 text-right text-xs">
-                            <button className="mr-1 rounded border border-gray-200 px-2 py-0.5 text-gray-700 hover:bg-gray-50">拆解</button>
-                            <button className="rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-amber-700 hover:bg-amber-100">+ 候选</button>
+                            <button onClick={() => toggleStarred(t)} className="mr-1 rounded border border-gray-200 px-2 py-0.5 text-gray-700 hover:bg-gray-50">
+                              {t.starred ? "取消收藏" : "收藏"}
+                            </button>
+                            <button onClick={() => addToPool(t)} className="rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-amber-700 hover:bg-amber-100">+ 候选</button>
                           </td>
                         </tr>
                       );
                     })}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
         </>
       )}
     </>
@@ -412,47 +485,51 @@ function TrendsTab({
 // ── 单条热点卡片 ─────────────────────────────────────────────────────────────
 
 function TrendCard({
-  t, platforms, expanded, onToggle,
+  t, platforms, expanded, onToggle, onStar, onAddPool,
 }: {
-  t: typeof mockTrends[0];
+  t: Trend;
   platforms: Platform[];
   expanded: boolean;
   onToggle: () => void;
+  onStar: () => void;
+  onAddPool: () => void;
 }) {
-  const plat = platforms.find((p) => p.slug === t.platform);
+  const plat = platforms.find((p) => p.slug === t.platform_slug);
   const platColor = plat?.color_class ?? "bg-gray-200 text-gray-700";
-  const platName = plat?.name ?? t.platform;
+  const platName = plat?.name ?? t.platform_slug;
+  const isManual = t.source_type === "manual";
   return (
     <div className={`group overflow-hidden rounded-xl border bg-white transition hover:shadow-md ${expanded ? "border-purple-300" : "border-gray-200"}`}>
-      {t.cover && (
+      {t.cover_url && (
         <div className="relative h-40 overflow-hidden bg-gray-100">
-          <img src={t.cover} alt={t.title} className="h-full w-full object-cover" />
+          <img src={t.cover_url} alt={t.title} className="h-full w-full object-cover" />
           <div className="absolute left-2 top-2 flex gap-1">
             <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${platColor}`}>{platName}</span>
-            {t.rank && <span className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">#{t.rank}</span>}
-            {t.manual && <span className="rounded bg-gray-700 px-1.5 py-0.5 text-[10px] text-white">手动</span>}
+            {t.rank_on_list && <span className="rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">#{t.rank_on_list}</span>}
+            {isManual && <span className="rounded bg-gray-700 px-1.5 py-0.5 text-[10px] text-white">手动</span>}
           </div>
           <div className="absolute right-2 top-2">
-            <button className="rounded-full bg-black/50 p-1 text-white hover:bg-black/70">
+            <button onClick={onStar} className="rounded-full bg-black/50 p-1 text-white hover:bg-black/70">
               <Star className={`h-3.5 w-3.5 ${t.starred ? "fill-amber-400 text-amber-400" : ""}`} />
             </button>
           </div>
         </div>
       )}
       <div className="p-3">
-        {!t.cover && (
+        {!t.cover_url && (
           <div className="mb-2 flex gap-1">
             <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${platColor}`}>{platName}</span>
-            {t.rank && <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[10px] text-white">#{t.rank}</span>}
+            {t.rank_on_list && <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[10px] text-white">#{t.rank_on_list}</span>}
+            {isManual && <span className="rounded bg-gray-700 px-1.5 py-0.5 text-[10px] text-white">手动</span>}
           </div>
         )}
-        <h3 className={`mb-1.5 font-medium text-gray-900 ${!t.read ? "" : "text-gray-600"}`}>
+        <h3 className={`mb-1.5 font-medium ${t.read ? "text-gray-600" : "text-gray-900"}`}>
           {!t.read && <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-red-500 align-middle" />}
           {t.title}
         </h3>
-        {t.desc && <p className="mb-2 line-clamp-2 text-xs text-gray-500">{t.desc}</p>}
+        {t.description && <p className="mb-2 line-clamp-2 text-xs text-gray-500">{t.description}</p>}
         <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-          {t.hot != null && <span className="inline-flex items-center gap-0.5"><Flame className="h-3 w-3 text-rose-500" />{formatNum(t.hot)}</span>}
+          {t.hot_score != null && <span className="inline-flex items-center gap-0.5"><Flame className="h-3 w-3 text-rose-500" />{formatNum(t.hot_score)}</span>}
           {t.views != null && <span className="inline-flex items-center gap-0.5"><Eye className="h-3 w-3" />{formatNum(t.views)}</span>}
           {t.likes != null && <span className="inline-flex items-center gap-0.5"><ThumbsUp className="h-3 w-3" />{formatNum(t.likes)}</span>}
           {t.author && <span className="text-gray-400">{t.author}</span>}
@@ -463,8 +540,9 @@ function TrendCard({
         </div>
 
         <div className="flex flex-wrap gap-1">
-          <button className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">
-            <Star className="h-3 w-3" />收藏
+          <button onClick={onStar} className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 hover:bg-gray-50">
+            <Star className={`h-3 w-3 ${t.starred ? "fill-amber-400 text-amber-400" : ""}`} />
+            {t.starred ? "已收藏" : "收藏"}
           </button>
           <button
             onClick={onToggle}
@@ -475,12 +553,14 @@ function TrendCard({
             <Brain className="h-3 w-3" />{t.analyzed ? "查看拆解" : "AI 拆解"}
             {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
           </button>
-          <button className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-700 hover:bg-amber-100">
+          <button onClick={onAddPool} className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs text-amber-700 hover:bg-amber-100">
             <Plus className="h-3 w-3" />候选
           </button>
-          <button className="rounded-md border border-gray-200 bg-white p-1 text-gray-500 hover:bg-gray-50">
-            <ExternalLink className="h-3 w-3" />
-          </button>
+          {t.source_url && (
+            <a href={t.source_url} target="_blank" rel="noreferrer" className="rounded-md border border-gray-200 bg-white p-1 text-gray-500 hover:bg-gray-50">
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
         </div>
       </div>
 
@@ -489,33 +569,16 @@ function TrendCard({
           <div className="mb-2 flex items-center gap-1 text-xs font-semibold text-purple-700">
             <Sparkles className="h-3 w-3" />AI 拆解结果
           </div>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <AnalysisBox label="🎣 钩子" text='"用AI给妈妈写歌"——情感+技术反差开场' />
-            <AnalysisBox label="🎬 结构" text="痛点(不会写歌)→过程(用AI)→成果(歌曲)→情绪爆发(妈妈反应)" />
-            <AnalysisBox label="💖 情绪" text="亲情共鸣 + 科技惊喜" />
-            <AnalysisBox label="👥 人群" text="18-35岁，对家人有情感表达需求" />
-          </div>
-          <div className="mt-2 rounded-lg border border-green-200 bg-green-50 p-2">
-            <p className="mb-1 text-xs font-semibold text-green-800">✨ 可复用元素</p>
-            <ul className="space-y-0.5 text-xs text-green-900">
-              <li>1. 用"送给XX"作为情感锚点</li>
-              <li>2. 展示AI/科技辅助的低门槛</li>
-              <li>3. 结尾真实反应（哭、惊讶）做情绪爆点</li>
-            </ul>
-          </div>
-          <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50 p-2">
-            <p className="text-xs text-blue-900">
-              <span className="font-semibold">🎯 改编建议：</span>
-              把"AI写歌"换成"用音乐密码Pro自动扒谱"，主题改"送给爸妈弹一首"，完美适配产品
-            </p>
-          </div>
-          <div className="mt-2 flex items-center gap-2 text-xs">
-            <span className="text-gray-500">复制难度：</span>
-            <span className="text-amber-600">⭐⭐⭐</span>
-            <span className="ml-2 text-gray-500">标签：</span>
-            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-700">亲情</span>
-            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-700">AI辅助</span>
-          </div>
+          {t.analyzed ? (
+            <div className="text-xs text-gray-600">（Phase 3 将读取真实拆解结果）</div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-500">该条目尚未拆解</p>
+              <button className="inline-flex items-center gap-1 rounded-md border border-purple-300 bg-white px-2 py-1 text-xs text-purple-700 hover:bg-purple-50">
+                <Sparkles className="h-3 w-3" />立即 AI 拆解（Phase 3）
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -578,7 +641,7 @@ function ManualInputView() {
       <button className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">
         <Plus className="h-4 w-4" />新增录入
       </button>
-      <p className="mt-4 text-[10px] text-gray-400">录入后会进入"我的收藏"与"历史"，可直接做 AI 拆解</p>
+      <p className="mt-4 text-[10px] text-gray-400">录入后会进入&ldquo;我的收藏&rdquo;与&ldquo;历史&rdquo;，可直接做 AI 拆解</p>
     </div>
   );
 }
@@ -841,6 +904,7 @@ function KeywordsPanel() {
     if (!error && data) setKeywords(data as Keyword[]);
     setLoading(false);
   }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
   async function add() {
@@ -1006,15 +1070,6 @@ function SettingRow({ label, children }: { label: string; children: React.ReactN
 }
 
 // ── Utils ────────────────────────────────────────────────────────────────────
-
-function AnalysisBox({ label, text }: { label: string; text: string }) {
-  return (
-    <div className="rounded-md border border-gray-200 bg-white p-2">
-      <p className="mb-0.5 font-semibold text-gray-700">{label}</p>
-      <p className="text-gray-600">{text}</p>
-    </div>
-  );
-}
 
 function ScoreBar({ score }: { score: number }) {
   return (
