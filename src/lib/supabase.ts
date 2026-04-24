@@ -1,9 +1,11 @@
-import { createClient } from "@supabase/supabase-js";
+import { createBrowserClient } from "@supabase/ssr";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder_key";
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// 使用 @supabase/ssr 的浏览器客户端：同时把 session 写入 cookie，
+// 让服务端 requireAdmin 能通过 cookie 读到登录用户。
+export const supabase = createBrowserClient(supabaseUrl, supabaseAnonKey);
 
 // 角色中文映射
 export const roleLabels: Record<string, string> = {
