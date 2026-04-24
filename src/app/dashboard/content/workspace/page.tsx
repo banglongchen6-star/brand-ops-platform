@@ -10,7 +10,7 @@ import {
   ArrowLeft, Settings, Bell, Target,
   Search, RefreshCw, LayoutGrid, List, CheckSquare,
   Star, Brain, Plus, Eye, ExternalLink, ChevronDown, ChevronUp,
-  ThumbsUp, Edit2, Trash2, X, Clock, Loader2,
+  ThumbsUp, Edit2, Trash2, X, Clock, Loader2, Copy, Check, Wand2,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
@@ -195,7 +195,7 @@ export default function ContentWorkspacePage() {
           onPoolChanged={loadPoolCount}
         />
       )}
-      {activeTab === "create" && <Placeholder label="✨ AI 创作区" />}
+      {activeTab === "create" && <CreateTab platforms={platforms} />}
       {activeTab === "review" && <Placeholder label="✅ 审核发布" />}
       {activeTab === "analytics" && <Placeholder label="📊 内容复盘" />}
 
@@ -1427,6 +1427,328 @@ function formatNum(n: number) {
   if (n >= 10000) return (n / 10000).toFixed(1) + "w";
   if (n >= 1000) return (n / 1000).toFixed(1) + "k";
   return String(n);
+}
+
+// ── AI 创作区 Tab ────────────────────────────────────────────────────────────
+
+interface PickableTrend {
+  id: string;
+  title: string;
+  description: string | null;
+  platform_slug: string;
+  analyzed: boolean;
+}
+
+interface GenResult {
+  title: string;
+  hook: string;
+  script: string;
+  key_points: string;
+  cta: string;
+  hashtags: string[];
+}
+
+function CreateTab({ platforms }: { platforms: Platform[] }) {
+  const [source, setSource] = useState<"pool" | "hitlib">("pool");
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  const [poolRows, setPoolRows] = useState<PickableTrend[]>([]);
+  const [hitRows, setHitRows] = useState<PickableTrend[]>([]);
+  const [loadingLeft, setLoadingLeft] = useState(true);
+
+  const [platform, setPlatform] = useState("douyin");
+  const [contentType, setContentType] = useState("video");
+  const [audience, setAudience] = useState("18-35岁，对音乐有兴趣但零基础");
+  const [brief, setBrief] = useState("");
+
+  const [generating, setGenerating] = useState(false);
+  const [result, setResult] = useState<GenResult | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // 加载左侧素材
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoadingLeft(true);
+      if (source === "pool") {
+        const scope = getSettings().default_pool_scope;
+        const { data } = await supabase
+          .from("content_candidate_pool")
+          .select("content_trends(id,title,description,platform_slug,analyzed)")
+          .eq("scope", scope)
+          .order("created_at", { ascending: false })
+          .limit(100);
+        if (!cancelled) {
+          const items = (data ?? [])
+            .map((r: { content_trends: PickableTrend | PickableTrend[] | null }) => r.content_trends)
+            .flat()
+            .filter((x): x is PickableTrend => !!x);
+          setPoolRows(items);
+        }
+      } else {
+        const { data } = await supabase
+          .from("content_trends")
+          .select("id,title,description,platform_slug,analyzed")
+          .eq("analyzed", true)
+          .order("last_seen_at", { ascending: false })
+          .limit(100);
+        if (!cancelled) setHitRows((data ?? []) as PickableTrend[]);
+      }
+      if (!cancelled) setLoadingLeft(false);
+    })();
+    return () => { cancelled = true; };
+  }, [source]);
+
+  const leftRows = source === "pool" ? poolRows : hitRows;
+  const picked = leftRows.find((r) => r.id === pickedId) ?? null;
+
+  async function generate() {
+    if (!brief.trim()) {
+      alert("请填写创作简报");
+      return;
+    }
+    setGenerating(true);
+    setResult(null);
+
+    try {
+      // 如果选了已拆解爆款，拉取它的 factors 一并作为 reference_hit
+      let reference_hit: Record<string, unknown> | undefined;
+      let reference_trend: Record<string, unknown> | undefined;
+      if (picked) {
+        if (picked.analyzed) {
+          const { data: f } = await supabase
+            .from("content_hit_factors")
+            .select("*")
+            .eq("trend_id", picked.id)
+            .maybeSingle();
+          reference_hit = {
+            title: picked.title,
+            ai_analysis: f ? {
+              hook: f.hook,
+              structure: f.structure,
+              emotion: f.emotion,
+              replicable_elements: (f.replicable_elements as string || "").split("\n").filter(Boolean),
+            } : undefined,
+          };
+        } else {
+          reference_trend = { title: picked.title, description: picked.description };
+        }
+      }
+
+      const r = await fetch("/api/content/generate-script", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform,
+          content_type: contentType,
+          target_audience: audience,
+          creative_brief: brief,
+          reference_trend,
+          reference_hit,
+        }),
+      });
+      const json = await r.json();
+      if (!r.ok) alert("生成失败：" + (json.error ?? r.status));
+      else setResult(json.result as GenResult);
+    } catch (e) {
+      alert("网络错误：" + (e instanceof Error ? e.message : String(e)));
+    }
+    setGenerating(false);
+  }
+
+  function copy(key: string, text: string) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 1500);
+    });
+  }
+
+  return (
+    <div className="grid gap-3 lg:grid-cols-5">
+      {/* 左侧：素材选择 */}
+      <div className="lg:col-span-2 space-y-3">
+        <div className="rounded-xl border border-gray-200 bg-white p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-xs font-semibold text-gray-700">📚 引用素材（可选）</p>
+            <div className="flex gap-0.5 rounded-lg border border-gray-200 p-0.5 text-xs">
+              <button
+                onClick={() => { setSource("pool"); setPickedId(null); }}
+                className={`rounded-md px-2 py-0.5 ${source === "pool" ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100"}`}
+              >候选池</button>
+              <button
+                onClick={() => { setSource("hitlib"); setPickedId(null); }}
+                className={`rounded-md px-2 py-0.5 ${source === "hitlib" ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100"}`}
+              >爆款库</button>
+            </div>
+          </div>
+          <p className="mb-2 text-[11px] text-gray-500">选一条作为参考，Claude 会结合它的钩子/结构生成脚本</p>
+          {loadingLeft ? (
+            <div className="flex justify-center py-6"><Loader2 className="h-4 w-4 animate-spin text-gray-400" /></div>
+          ) : leftRows.length === 0 ? (
+            <p className="py-6 text-center text-xs text-gray-400">
+              {source === "pool" ? "候选池是空的，去热榜点 ➕候选 加入" : "还没有已拆解的爆款"}
+            </p>
+          ) : (
+            <div className="max-h-[480px] space-y-1.5 overflow-y-auto">
+              {leftRows.map((r) => {
+                const plat = platforms.find((p) => p.slug === r.platform_slug);
+                const on = pickedId === r.id;
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => setPickedId(on ? null : r.id)}
+                    className={`w-full rounded-lg border p-2 text-left transition ${
+                      on ? "border-purple-400 bg-purple-50" : "border-gray-200 hover:border-gray-300"
+                    }`}
+                  >
+                    <div className="mb-1 flex items-center gap-1.5">
+                      <span className={`rounded px-1.5 py-0.5 text-[10px] ${plat?.color_class ?? "bg-gray-200 text-gray-700"}`}>
+                        {plat?.name ?? r.platform_slug}
+                      </span>
+                      {r.analyzed && <span className="rounded bg-purple-100 px-1.5 py-0.5 text-[10px] text-purple-700">已拆解</span>}
+                      {on && <Check className="ml-auto h-3 w-3 text-purple-600" />}
+                    </div>
+                    <p className="line-clamp-2 text-xs font-medium text-gray-900">{r.title}</p>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 右侧：生成参数 + 结果 */}
+      <div className="lg:col-span-3 space-y-3">
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <Wand2 className="h-4 w-4 text-purple-600" />
+            <h2 className="text-sm font-semibold text-gray-900">创作简报</h2>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-[11px] text-gray-600">目标平台</label>
+              <select
+                value={platform}
+                onChange={(e) => setPlatform(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:border-gray-900 focus:outline-none"
+              >
+                <option value="douyin">抖音</option>
+                <option value="xiaohongshu">小红书</option>
+                <option value="shipinhao">视频号</option>
+                <option value="bilibili">B站</option>
+                <option value="weixin">公众号</option>
+              </select>
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] text-gray-600">内容形式</label>
+              <select
+                value={contentType}
+                onChange={(e) => setContentType(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:border-gray-900 focus:outline-none"
+              >
+                <option value="video">短视频口播</option>
+                <option value="image_text">图文</option>
+                <option value="article">长文</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="mt-2">
+            <label className="mb-1 block text-[11px] text-gray-600">目标人群</label>
+            <input
+              value={audience}
+              onChange={(e) => setAudience(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:border-gray-900 focus:outline-none"
+            />
+          </div>
+
+          <div className="mt-2">
+            <label className="mb-1 block text-[11px] text-gray-600">创作简报 *</label>
+            <textarea
+              value={brief}
+              onChange={(e) => setBrief(e.target.value)}
+              rows={4}
+              placeholder="例：想介绍音乐密码 Pro 的自动教学功能，突出零基础 30 天能弹一首歌的卖点。目标是吸引有兴趣买乐器送孩子的家长。"
+              className="w-full resize-none rounded-lg border border-gray-200 px-2 py-1.5 text-xs focus:border-gray-900 focus:outline-none"
+            />
+          </div>
+
+          {picked && (
+            <div className="mt-2 rounded-lg border border-purple-200 bg-purple-50 p-2 text-xs">
+              <p className="text-purple-700"><b>已引用：</b>{picked.title}</p>
+              <button onClick={() => setPickedId(null)} className="mt-0.5 text-[10px] text-purple-500 hover:underline">取消引用</button>
+            </div>
+          )}
+
+          <button
+            onClick={generate}
+            disabled={generating || !brief.trim()}
+            className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+          >
+            {generating ? (<><Loader2 className="h-4 w-4 animate-spin" />Claude 正在创作…</>) : (<><Sparkles className="h-4 w-4" />生成脚本</>)}
+          </button>
+        </div>
+
+        {result && (
+          <div className="rounded-xl border border-purple-200 bg-gradient-to-br from-purple-50/50 to-white p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-purple-600" />
+              <h3 className="text-sm font-semibold text-gray-900">生成结果</h3>
+              <button
+                onClick={() => copy("all", [
+                  `标题：${result.title}`,
+                  `钩子：${result.hook}`,
+                  `正文：${result.script}`,
+                  `卖点：${result.key_points}`,
+                  `CTA：${result.cta}`,
+                  `标签：${result.hashtags.map((h) => "#" + h).join(" ")}`,
+                ].join("\n\n"))}
+                className="ml-auto inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-[11px] text-gray-700 hover:bg-gray-50"
+              >
+                {copiedKey === "all" ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+                {copiedKey === "all" ? "已复制" : "一键复制"}
+              </button>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <ResultRow label="📌 标题" value={result.title} onCopy={() => copy("title", result.title)} copied={copiedKey === "title"} />
+              <ResultRow label="🎣 开头钩子" value={result.hook} onCopy={() => copy("hook", result.hook)} copied={copiedKey === "hook"} />
+              <ResultRow label="📝 正文" value={result.script} onCopy={() => copy("script", result.script)} copied={copiedKey === "script"} multiline />
+              <ResultRow label="💡 核心卖点" value={result.key_points} onCopy={() => copy("key_points", result.key_points)} copied={copiedKey === "key_points"} multiline />
+              <ResultRow label="📢 CTA" value={result.cta} onCopy={() => copy("cta", result.cta)} copied={copiedKey === "cta"} />
+              <div className="rounded-lg border border-purple-100 bg-white/70 px-2 py-1.5">
+                <div className="mb-1 text-[10px] text-purple-500">🏷️ 标签</div>
+                <div className="flex flex-wrap gap-1">
+                  {result.hashtags.map((h) => (
+                    <span key={h} className="rounded bg-gray-100 px-1.5 py-0.5 text-gray-700">#{h}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <p className="mt-3 text-[10px] text-gray-400">后续 Phase 6 将支持&ldquo;一键送入审核发布&rdquo;</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ResultRow({
+  label, value, onCopy, copied, multiline,
+}: {
+  label: string; value: string; onCopy: () => void; copied: boolean; multiline?: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-purple-100 bg-white/70 px-2 py-1.5">
+      <div className="mb-0.5 flex items-center justify-between">
+        <div className="text-[10px] text-purple-500">{label}</div>
+        <button onClick={onCopy} className="text-[10px] text-gray-400 hover:text-gray-700">
+          {copied ? <Check className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+        </button>
+      </div>
+      <div className={`text-gray-800 ${multiline ? "whitespace-pre-wrap" : ""}`}>{value}</div>
+    </div>
+  );
 }
 
 function Placeholder({ label }: { label: string }) {
