@@ -823,18 +823,234 @@ function TropesView() {
 
 // ── 手动录入视图 ─────────────────────────────────────────────────────────────
 
+// ── 手动录入（粘贴链接批量解析） ─────────────────────────────────────────────
+
+interface ImportLog {
+  url: string;
+  status: "pending" | "ok" | "fail" | "need_manual";
+  title?: string;
+  error?: string;
+  trend_id?: string;
+  meta?: { title?: string; description?: string; cover_url?: string; author?: string };
+}
+
 function ManualInputView() {
+  const [raw, setRaw] = useState("");
+  const [running, setRunning] = useState(false);
+  const [logs, setLogs] = useState<ImportLog[]>([]);
+  const [manualTarget, setManualTarget] = useState<ImportLog | null>(null);
+
+  // 提取所有 URL（换行分隔或空格分隔）
+  function extractUrls(text: string): string[] {
+    const matches = text.match(/https?:\/\/[^\s<>"']+/g) ?? [];
+    return [...new Set(matches)];
+  }
+
+  async function runImport() {
+    const urls = extractUrls(raw);
+    if (urls.length === 0) {
+      alert("没有识别到有效的链接（需 http/https 开头）");
+      return;
+    }
+    setRunning(true);
+    const init: ImportLog[] = urls.map((u) => ({ url: u, status: "pending" }));
+    setLogs(init);
+
+    // 串行（对方站点反爬更友好）
+    for (let i = 0; i < urls.length; i++) {
+      const u = urls[i];
+      try {
+        const r = await fetch("/api/content/trends/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: u }),
+        });
+        const json = await r.json();
+        if (r.ok) {
+          setLogs((prev) => prev.map((x, idx) => idx === i
+            ? { ...x, status: "ok", title: json.trend?.title, trend_id: json.trend?.id } : x));
+        } else if (r.status === 422) {
+          setLogs((prev) => prev.map((x, idx) => idx === i
+            ? { ...x, status: "need_manual", error: json.error, meta: json.meta } : x));
+        } else {
+          setLogs((prev) => prev.map((x, idx) => idx === i
+            ? { ...x, status: "fail", error: json.error ?? `${r.status}` } : x));
+        }
+      } catch (e) {
+        setLogs((prev) => prev.map((x, idx) => idx === i
+          ? { ...x, status: "fail", error: e instanceof Error ? e.message : String(e) } : x));
+      }
+    }
+    setRunning(false);
+  }
+
+  function clearAll() {
+    setRaw("");
+    setLogs([]);
+  }
+
+  const okCount = logs.filter((l) => l.status === "ok").length;
+  const failCount = logs.filter((l) => l.status === "fail").length;
+  const needManualCount = logs.filter((l) => l.status === "need_manual").length;
+
   return (
-    <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center">
-      <Edit2 className="mx-auto mb-3 h-8 w-8 text-gray-400" />
-      <h3 className="mb-1 text-sm font-semibold text-gray-900">手动录入爆款</h3>
-      <p className="mx-auto mb-4 max-w-md text-xs text-gray-500">
-        小红书、视频号、公众号等没法自动抓取的平台，或同事推荐的优质内容，通过这里录入。
-      </p>
-      <button className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-800">
-        <Plus className="h-4 w-4" />新增录入
-      </button>
-      <p className="mt-4 text-[10px] text-gray-400">录入后会进入&ldquo;我的收藏&rdquo;与&ldquo;历史&rdquo;，可直接做 AI 拆解</p>
+    <div className="space-y-3">
+      <div className="rounded-xl border border-gray-200 bg-white p-4">
+        <div className="mb-2 flex items-center justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">📥 粘贴链接批量导入</h3>
+            <p className="mt-0.5 text-[11px] text-gray-500">
+              支持抖音 / 小红书 / B站 / 知乎 / 微博 / 公众号等链接，换行或空格分隔，一次可粘多条
+            </p>
+          </div>
+          {logs.length > 0 && (
+            <button onClick={clearAll} className="text-xs text-gray-500 hover:text-gray-900">清空</button>
+          )}
+        </div>
+
+        <textarea
+          value={raw}
+          onChange={(e) => setRaw(e.target.value)}
+          rows={5}
+          placeholder={"https://www.xiaohongshu.com/explore/xxxxxx\nhttps://v.douyin.com/abc/\nhttps://www.bilibili.com/video/BV..."}
+          className="w-full resize-none rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs focus:border-gray-900 focus:bg-white focus:outline-none"
+        />
+
+        <div className="mt-2 flex items-center justify-between">
+          <p className="text-[11px] text-gray-500">
+            提示：抖音/小红书的<b>短链（v.douyin.com、xhslink.com）</b>解析率最高
+          </p>
+          <button
+            onClick={runImport}
+            disabled={running || !raw.trim()}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+          >
+            {running ? (<><Loader2 className="h-4 w-4 animate-spin" />解析中…</>) : (<><Plus className="h-4 w-4" />解析并入库</>)}
+          </button>
+        </div>
+      </div>
+
+      {logs.length > 0 && (
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <div className="mb-2 flex items-center gap-3 text-xs">
+            <span className="text-gray-700 font-semibold">导入结果</span>
+            <span className="text-green-600">✅ 成功 {okCount}</span>
+            {needManualCount > 0 && <span className="text-amber-600">⚠️ 需手动补 {needManualCount}</span>}
+            {failCount > 0 && <span className="text-red-600">❌ 失败 {failCount}</span>}
+            {running && <Loader2 className="h-3 w-3 animate-spin text-gray-400" />}
+          </div>
+          <div className="space-y-1.5">
+            {logs.map((log, i) => (
+              <div key={i} className="flex items-start gap-2 rounded border border-gray-100 bg-gray-50 px-2 py-1.5 text-xs">
+                <span className="mt-0.5 flex-shrink-0">
+                  {log.status === "pending" && <Loader2 className="h-3 w-3 animate-spin text-gray-400" />}
+                  {log.status === "ok" && <Check className="h-3 w-3 text-green-600" />}
+                  {log.status === "need_manual" && <Edit2 className="h-3 w-3 text-amber-600" />}
+                  {log.status === "fail" && <X className="h-3 w-3 text-red-600" />}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-gray-700">{log.title || log.url}</div>
+                  {log.error && <div className="text-[10px] text-red-500">{log.error}</div>}
+                </div>
+                {log.status === "need_manual" && (
+                  <button
+                    onClick={() => setManualTarget(log)}
+                    className="flex-shrink-0 rounded border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700 hover:bg-amber-100"
+                  >
+                    手动补全
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {manualTarget && (
+        <ManualFillModal
+          log={manualTarget}
+          onClose={() => setManualTarget(null)}
+          onSaved={(title) => {
+            setLogs((prev) => prev.map((x) => x.url === manualTarget.url
+              ? { ...x, status: "ok", title } : x));
+            setManualTarget(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function ManualFillModal({
+  log, onClose, onSaved,
+}: {
+  log: ImportLog;
+  onClose: () => void;
+  onSaved: (title: string) => void;
+}) {
+  const [title, setTitle] = useState(log.meta?.title ?? "");
+  const [description, setDescription] = useState(log.meta?.description ?? "");
+  const [author, setAuthor] = useState(log.meta?.author ?? "");
+  const [cover, setCover] = useState(log.meta?.cover_url ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!title.trim()) { alert("请填写标题"); return; }
+    setSaving(true);
+    const r = await fetch("/api/content/trends/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        url: log.url,
+        override: { title, description, author, cover_url: cover },
+      }),
+    });
+    const json = await r.json();
+    setSaving(false);
+    if (!r.ok) { alert("保存失败：" + (json.error ?? r.status)); return; }
+    onSaved(title);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-base font-semibold">手动补全内容</h3>
+          <button onClick={onClose} className="rounded p-1 hover:bg-gray-100"><X className="h-4 w-4" /></button>
+        </div>
+        <p className="mb-3 truncate text-[11px] text-gray-500">{log.url}</p>
+        <div className="space-y-2">
+          <div>
+            <label className="mb-1 block text-xs text-gray-600">标题 *</label>
+            <input value={title} onChange={(e) => setTitle(e.target.value)}
+              className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-sm focus:border-gray-900 focus:outline-none" />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-gray-600">描述 / 正文</label>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3}
+              className="w-full resize-none rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:border-gray-900 focus:outline-none" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="mb-1 block text-xs text-gray-600">作者</label>
+              <input value={author} onChange={(e) => setAuthor(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:border-gray-900 focus:outline-none" />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-gray-600">封面 URL</label>
+              <input value={cover} onChange={(e) => setCover(e.target.value)}
+                className="w-full rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:border-gray-900 focus:outline-none" />
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-lg border border-gray-200 px-4 py-1.5 text-sm text-gray-700 hover:bg-gray-50">取消</button>
+          <button onClick={save} disabled={saving}
+            className="rounded-lg bg-gray-900 px-4 py-1.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-60">
+            {saving ? "保存中…" : "保存入库"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
