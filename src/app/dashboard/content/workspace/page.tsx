@@ -698,7 +698,7 @@ function TrendCard({
           </div>
           {analyzing ? (
             <div className="flex items-center gap-2 py-4 text-xs text-purple-700">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />Claude 正在拆解，约需 10-20 秒…
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />Qwen 正在拆解，约需 10-20 秒…
             </div>
           ) : t.analyzed && loadingFactors ? (
             <div className="py-4"><Loader2 className="mx-auto h-4 w-4 animate-spin text-gray-400" /></div>
