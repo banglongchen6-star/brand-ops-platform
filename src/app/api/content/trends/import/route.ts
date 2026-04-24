@@ -143,6 +143,7 @@ export async function POST(req: Request) {
     const external_id = meta.canonical || url;
 
     const row = {
+      platform: platform_slug, // 兼容老列（NOT NULL）
       platform_slug,
       source_type: "manual" as const,
       external_id,

@@ -70,6 +70,7 @@ export async function POST() {
         const title = String(it.title ?? "");
         const desc = String((it.desc as string) ?? "");
         return {
+          platform: p.slug, // 兼容老列（NOT NULL）
           platform_slug: p.slug,
           source_type: "dailyhot",
           external_id: String(it.id ?? `${p.slug}-${idx}`),
