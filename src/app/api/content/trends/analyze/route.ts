@@ -1,8 +1,6 @@
 // POST /api/content/trends/analyze —— AI 拆解一条热点并写入 content_hit_factors
-import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { generateText } from "@/lib/aiClient";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -88,15 +86,13 @@ ${trend.description || "（无描述，仅基于标题推断）"}
 
 请严格按系统要求的 JSON 格式输出。`;
 
-    // 3. 调 Claude
-    const resp = await anthropic.messages.create({
-      model: "claude-opus-4-6",
-      max_tokens: 2048,
+    // 3. 调激活的 AI 模型（优先取 content scope 的 key，没有再回退到 global）
+    const text = await generateText({
       system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: userMessage }],
+      user: userMessage,
+      maxTokens: 2048,
+      scope: "content",
     });
-    const textBlock = resp.content.find((b) => b.type === "text");
-    const text = textBlock && textBlock.type === "text" ? textBlock.text : "";
 
     let parsed: Analysis;
     try {

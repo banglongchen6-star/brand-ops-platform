@@ -17,6 +17,8 @@ import {
   getSettings, patchSettings, REFRESH_OPTIONS,
   type WorkspaceSettings,
 } from "@/lib/workspaceSettings";
+import { useIsAdmin } from "@/lib/useIsAdmin";
+import AIConfigModal from "./AIConfigModal";
 
 // ── Types (match DB) ─────────────────────────────────────────────────────────
 
@@ -1560,6 +1562,8 @@ function PoolPanel({ platforms, onChanged }: { platforms: Platform[]; onChanged:
 
 function GeneralPanel() {
   const [settings, setSettings] = useState<WorkspaceSettings>(() => getSettings());
+  const [aiOpen, setAiOpen] = useState(false);
+  const isAdmin = useIsAdmin();
 
   function update<K extends keyof WorkspaceSettings>(key: K, value: WorkspaceSettings[K]) {
     const next = patchSettings({ [key]: value } as Partial<WorkspaceSettings>);
@@ -1609,6 +1613,23 @@ function GeneralPanel() {
         </label>
       </SettingRow>
       <p className="text-[11px] text-gray-400">设置保存在本浏览器（localStorage），修改后立即生效</p>
+
+      {/* AI 模型配置入口 —— 仅系统管理员可见 */}
+      {isAdmin && (
+        <div className="mt-5 border-t border-gray-100 pt-4">
+          <div className="mb-2 text-xs font-semibold text-gray-700">🔑 AI 模型配置（内容运营）</div>
+          <p className="mb-3 text-[11px] text-gray-500">
+            管理本模块调用 Claude / 千问 / 自定义 OpenAI 兼容模型的 API Key。Key 以加密形式保存，仅系统管理员可见。
+          </p>
+          <button
+            onClick={() => setAiOpen(true)}
+            className="rounded-md bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700"
+          >
+            打开 AI 配置面板 →
+          </button>
+          <AIConfigModal open={aiOpen} onClose={() => setAiOpen(false)} />
+        </div>
+      )}
     </div>
   );
 }

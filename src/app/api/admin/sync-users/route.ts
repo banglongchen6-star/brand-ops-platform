@@ -1,8 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
+import { requireAdmin } from "@/lib/requireAdmin";
 
 // 从 Supabase Auth 同步用户到 profiles 表
 // 补全那些在 Auth 有账号但 profiles 里没记录的用户
 export async function POST() {
+  const guard = await requireAdmin();
+  if (!guard.ok) return guard.response;
   try {
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;

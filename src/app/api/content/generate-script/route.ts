@@ -1,6 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
-
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+import { generateText } from "@/lib/aiClient";
 
 const SYSTEM_PROMPT = `你是音乐密码智能乐器公司的内容创作助手。
 公司产品：音乐密码系列智能乐器（2代、Pro、Mini），定价 500-3000 元，主打"零基础也能学会音乐"。
@@ -64,15 +62,12 @@ ${refs.join("\n\n")}
 
 请严格按系统要求的 JSON 格式输出。`;
 
-    const resp = await client.messages.create({
-      model: "claude-opus-4-6",
-      max_tokens: 3000,
+    const text = await generateText({
       system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: userMessage }],
+      user: userMessage,
+      maxTokens: 3000,
+      scope: "content",
     });
-
-    const textBlock = resp.content.find((b) => b.type === "text");
-    const text = textBlock && textBlock.type === "text" ? textBlock.text : "";
 
     let parsed;
     try {

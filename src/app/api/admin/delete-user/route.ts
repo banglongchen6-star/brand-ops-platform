@@ -1,6 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
+import { requireAdmin } from "@/lib/requireAdmin";
 
 export async function DELETE(req: Request) {
+  const guard = await requireAdmin();
+  if (!guard.ok) return guard.response;
   try {
     const { userId } = await req.json();
 
