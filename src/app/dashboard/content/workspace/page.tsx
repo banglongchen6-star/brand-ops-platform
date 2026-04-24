@@ -13,6 +13,10 @@ import {
   ThumbsUp, Edit2, Trash2, X, Clock, Loader2,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import {
+  getSettings, patchSettings, REFRESH_OPTIONS,
+  type WorkspaceSettings,
+} from "@/lib/workspaceSettings";
 
 // ── Types (match DB) ─────────────────────────────────────────────────────────
 
@@ -115,6 +119,7 @@ export default function ContentWorkspacePage() {
   const [panel, setPanel] = useState<QuickPanel>(null);
   const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [loadingPlatforms, setLoadingPlatforms] = useState(true);
+  const [poolCount, setPoolCount] = useState(0);
 
   const loadPlatforms = useCallback(async () => {
     setLoadingPlatforms(true);
@@ -126,8 +131,15 @@ export default function ContentWorkspacePage() {
     setLoadingPlatforms(false);
   }, []);
 
+  const loadPoolCount = useCallback(async () => {
+    const { count } = await supabase
+      .from("content_candidate_pool")
+      .select("*", { count: "exact", head: true });
+    setPoolCount(count ?? 0);
+  }, []);
+
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { loadPlatforms(); }, [loadPlatforms]);
+  useEffect(() => { loadPlatforms(); loadPoolCount(); }, [loadPlatforms, loadPoolCount]);
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -175,7 +187,13 @@ export default function ContentWorkspacePage() {
 
       {/* ── Tab Content ──────────────────────────────────────────────── */}
       {activeTab === "trends" && (
-        <TrendsTab platforms={platforms} loadingPlatforms={loadingPlatforms} onOpenPanel={setPanel} />
+        <TrendsTab
+          platforms={platforms}
+          loadingPlatforms={loadingPlatforms}
+          onOpenPanel={setPanel}
+          poolCount={poolCount}
+          onPoolChanged={loadPoolCount}
+        />
       )}
       {activeTab === "create" && <Placeholder label="✨ AI 创作区" />}
       {activeTab === "review" && <Placeholder label="✅ 审核发布" />}
@@ -187,6 +205,7 @@ export default function ContentWorkspacePage() {
           onClose={() => setPanel(null)}
           platforms={platforms}
           onPlatformsChanged={loadPlatforms}
+          onPoolChanged={loadPoolCount}
         />
       )}
     </div>
@@ -199,13 +218,20 @@ function TrendsTab({
   platforms,
   loadingPlatforms,
   onOpenPanel,
+  poolCount,
+  onPoolChanged,
 }: {
   platforms: Platform[];
   loadingPlatforms: boolean;
   onOpenPanel: (p: QuickPanel) => void;
+  poolCount: number;
+  onPoolChanged: () => void;
 }) {
   const [subTab, setSubTab] = useState<SubTab>("live");
-  const [density, setDensity] = useState<Density>("card");
+  const [density, setDensity] = useState<Density>(() => {
+    if (typeof window === "undefined") return "card";
+    return getSettings().default_density;
+  });
   const enabledPlatforms = platforms.filter((p) => p.enabled);
   const [activeSlugs, setActiveSlugs] = useState<string[] | null>(null);
   const [musicFilter, setMusicFilter] = useState(true);
@@ -240,6 +266,24 @@ function TrendsTab({
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadTrends(); }, [loadTrends]);
 
+  // 自动刷新（按通用设置的 refresh_interval）
+  useEffect(() => {
+    function apply() {
+      const { refresh_interval } = getSettings();
+      if (!refresh_interval) return undefined;
+      const id = setInterval(() => {
+        fetch("/api/content/hot-feed/sync", { method: "POST" })
+          .then((r) => r.ok ? loadTrends() : null)
+          .catch(() => {});
+      }, refresh_interval * 1000);
+      return () => clearInterval(id);
+    }
+    let cleanup = apply();
+    const onChange = () => { cleanup?.(); cleanup = apply(); };
+    window.addEventListener("ws-settings-changed", onChange);
+    return () => { cleanup?.(); window.removeEventListener("ws-settings-changed", onChange); };
+  }, [loadTrends]);
+
   async function syncHotFeed() {
     setSyncing(true);
     try {
@@ -273,14 +317,16 @@ function TrendsTab({
   }
 
   async function addToPool(t: Trend) {
+    const scope = getSettings().default_pool_scope;
     const { error } = await supabase
       .from("content_candidate_pool")
-      .insert({ trend_id: t.id, scope: "personal" });
+      .insert({ trend_id: t.id, scope });
     if (error) {
       if (error.message.includes("duplicate")) alert("该条目已在候选池");
       else alert("加入失败：" + error.message);
     } else {
-      alert("已加入候选池");
+      onPoolChanged();
+      alert(`已加入${scope === "team" ? "团队" : "个人"}候选池`);
     }
   }
 
@@ -328,7 +374,7 @@ function TrendsTab({
           className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100"
         >
           <Target className="h-3.5 w-3.5" />候选池
-          <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] text-white">5</span>
+          <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] text-white">{poolCount}</span>
         </button>
         <span className="ml-auto text-[11px] text-gray-400">
           {lastSyncAt ? `上次同步：${new Date(lastSyncAt).toLocaleTimeString("zh-CN")}` : "点右侧「刷新」拉取热榜"}
@@ -796,12 +842,13 @@ function ManualInputView() {
 // ── 快捷面板弹窗 ────────────────────────────────────────────────────────────
 
 function QuickPanelModal({
-  panel, onClose, platforms, onPlatformsChanged,
+  panel, onClose, platforms, onPlatformsChanged, onPoolChanged,
 }: {
   panel: Exclude<QuickPanel, null>;
   onClose: () => void;
   platforms: Platform[];
   onPlatformsChanged: () => void;
+  onPoolChanged: () => void;
 }) {
   const titles: Record<Exclude<QuickPanel, null>, string> = {
     platforms: "📡 平台管理",
@@ -822,8 +869,8 @@ function QuickPanelModal({
             <PlatformsPanel platforms={platforms} onChanged={onPlatformsChanged} />
           )}
           {panel === "keywords" && <KeywordsPanel />}
-          {panel === "pool" && <PoolPanelMock />}
-          {panel === "general" && <GeneralPanelMock />}
+          {panel === "pool" && <PoolPanel platforms={platforms} onChanged={onPoolChanged} />}
+          {panel === "general" && <GeneralPanel />}
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-gray-100 px-5 py-3">
@@ -1167,42 +1214,185 @@ function KeywordsPanel() {
   );
 }
 
-// ── 候选池 / 通用 面板（仍为 mock，Phase 4 接入） ────────────────────────────
+// ── 候选池面板（真实数据） ──────────────────────────────────────────────────
 
-function PoolPanelMock() {
+interface PoolRow {
+  id: string;
+  trend_id: string;
+  scope: "personal" | "team";
+  note: string;
+  created_at: string;
+  content_trends: {
+    id: string;
+    title: string;
+    description: string | null;
+    platform_slug: string;
+    hot_score: number | null;
+    music_score: number;
+    source_url: string | null;
+    cover_url: string | null;
+    analyzed: boolean;
+  } | null;
+}
+
+function PoolPanel({ platforms, onChanged }: { platforms: Platform[]; onChanged: () => void }) {
+  const [scope, setScope] = useState<"personal" | "team">(() => getSettings().default_pool_scope);
+  const [rows, setRows] = useState<PoolRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async (s: "personal" | "team") => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("content_candidate_pool")
+      .select("id,trend_id,scope,note,created_at,content_trends(id,title,description,platform_slug,hot_score,music_score,source_url,cover_url,analyzed)")
+      .eq("scope", s)
+      .order("created_at", { ascending: false });
+    if (!error && data) setRows(data as unknown as PoolRow[]);
+    setLoading(false);
+  }, []);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { load(scope); }, [scope, load]);
+
+  async function remove(r: PoolRow) {
+    if (!confirm("从候选池移除该条目？")) return;
+    const { error } = await supabase.from("content_candidate_pool").delete().eq("id", r.id);
+    if (error) alert("移除失败：" + error.message);
+    else { load(scope); onChanged(); }
+  }
+
+  async function saveNote(r: PoolRow, note: string) {
+    const { error } = await supabase.from("content_candidate_pool").update({ note }).eq("id", r.id);
+    if (error) alert("备注保存失败：" + error.message);
+    else setRows((prev) => prev.map((x) => x.id === r.id ? { ...x, note } : x));
+  }
+
   return (
     <div className="space-y-3">
       <div className="mb-2 flex items-center justify-between">
-        <p className="text-xs text-gray-500">候选池保存的热点/爆款，可直接在「AI 创作区」引用生成选题</p>
-        <div className="flex gap-1 rounded-lg border border-gray-200 p-0.5 text-xs">
-          <button className="rounded-md bg-gray-900 px-2 py-0.5 text-white">个人</button>
-          <button className="rounded-md px-2 py-0.5 text-gray-600 hover:bg-gray-100">团队</button>
+        <p className="text-xs text-gray-500">候选池保存的热点/爆款，可在「AI 创作区」引用生成选题</p>
+        <div className="flex gap-0.5 rounded-lg border border-gray-200 p-0.5 text-xs">
+          <button
+            onClick={() => setScope("personal")}
+            className={`rounded-md px-2 py-0.5 ${scope === "personal" ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100"}`}
+          >个人</button>
+          <button
+            onClick={() => setScope("team")}
+            className={`rounded-md px-2 py-0.5 ${scope === "team" ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100"}`}
+          >团队</button>
         </div>
       </div>
-      <p className="py-6 text-center text-xs text-gray-400">（Phase 4 接入真实数据）</p>
+
+      {loading ? (
+        <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-gray-400" /></div>
+      ) : rows.length === 0 ? (
+        <p className="py-6 text-center text-xs text-gray-400">
+          {scope === "personal" ? "个人" : "团队"}候选池是空的，去热榜点 ➕候选 加入
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((r) => {
+            const t = r.content_trends;
+            if (!t) return (
+              <div key={r.id} className="rounded-lg border border-gray-200 bg-gray-50 p-2 text-xs text-gray-400">
+                （热点已删除）
+                <button onClick={() => remove(r)} className="ml-2 text-red-500 hover:underline">清除</button>
+              </div>
+            );
+            const plat = platforms.find((p) => p.slug === t.platform_slug);
+            return (
+              <div key={r.id} className="rounded-lg border border-gray-200 p-3 hover:border-gray-300">
+                <div className="mb-1.5 flex items-start gap-2">
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] ${plat?.color_class ?? "bg-gray-200 text-gray-700"}`}>
+                    {plat?.name ?? t.platform_slug}
+                  </span>
+                  {t.analyzed && <span className="rounded bg-purple-100 px-1.5 py-0.5 text-[10px] text-purple-700">已拆解</span>}
+                  <a
+                    href={t.source_url ?? "#"}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`flex-1 truncate text-sm font-medium text-gray-900 hover:underline ${!t.source_url ? "pointer-events-none" : ""}`}
+                  >
+                    {t.title}
+                  </a>
+                  <button onClick={() => remove(r)} className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                {t.description && <p className="mb-2 line-clamp-1 text-xs text-gray-500">{t.description}</p>}
+                <div className="flex items-center gap-3 text-[11px] text-gray-500">
+                  {t.hot_score != null && <span className="inline-flex items-center gap-0.5"><Flame className="h-3 w-3 text-rose-500" />{formatNum(t.hot_score)}</span>}
+                  <span>音乐度 {t.music_score}</span>
+                  <span className="text-gray-400">加入于 {new Date(r.created_at).toLocaleDateString("zh-CN")}</span>
+                </div>
+                <input
+                  defaultValue={r.note}
+                  onBlur={(e) => { if (e.target.value !== r.note) saveNote(r, e.target.value); }}
+                  placeholder="备注（失焦保存）"
+                  className="mt-2 w-full rounded border border-gray-200 bg-gray-50 px-2 py-1 text-xs focus:border-gray-900 focus:bg-white focus:outline-none"
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
 
-function GeneralPanelMock() {
+// ── 通用设置面板（localStorage） ────────────────────────────────────────────
+
+function GeneralPanel() {
+  const [settings, setSettings] = useState<WorkspaceSettings>(() => getSettings());
+
+  function update<K extends keyof WorkspaceSettings>(key: K, value: WorkspaceSettings[K]) {
+    const next = patchSettings({ [key]: value } as Partial<WorkspaceSettings>);
+    setSettings(next);
+  }
+
   return (
     <div className="space-y-4">
       <SettingRow label="自动刷新间隔">
-        <select className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:border-gray-900 focus:outline-none">
-          <option>关闭</option><option>5 分钟</option><option>15 分钟</option><option>30 分钟</option><option>1 小时</option>
+        <select
+          value={settings.refresh_interval}
+          onChange={(e) => update("refresh_interval", Number(e.target.value))}
+          className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:border-gray-900 focus:outline-none"
+        >
+          {REFRESH_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </SettingRow>
       <SettingRow label="默认卡片密度">
-        <select className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:border-gray-900 focus:outline-none">
-          <option>大卡片</option><option>紧凑列表</option>
+        <select
+          value={settings.default_density}
+          onChange={(e) => update("default_density", e.target.value as "card" | "list")}
+          className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:border-gray-900 focus:outline-none"
+        >
+          <option value="card">大卡片</option>
+          <option value="list">紧凑列表</option>
         </select>
       </SettingRow>
       <SettingRow label="候选池默认归属">
-        <select className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:border-gray-900 focus:outline-none">
-          <option>个人私有</option><option>团队共享</option>
+        <select
+          value={settings.default_pool_scope}
+          onChange={(e) => update("default_pool_scope", e.target.value as "personal" | "team")}
+          className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs focus:border-gray-900 focus:outline-none"
+        >
+          <option value="personal">个人私有</option>
+          <option value="team">团队共享</option>
         </select>
       </SettingRow>
-      <p className="text-[11px] text-gray-400">（通用设置 Phase 4 接入，暂不保存）</p>
+      <SettingRow label="桌面通知">
+        <label className="relative inline-flex cursor-pointer items-center">
+          <input
+            type="checkbox"
+            checked={settings.desktop_notify}
+            onChange={(e) => update("desktop_notify", e.target.checked)}
+            className="peer sr-only"
+          />
+          <div className="h-5 w-9 rounded-full bg-gray-200 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:transition peer-checked:bg-green-500 peer-checked:after:translate-x-4"></div>
+        </label>
+      </SettingRow>
+      <p className="text-[11px] text-gray-400">设置保存在本浏览器（localStorage），修改后立即生效</p>
     </div>
   );
 }
