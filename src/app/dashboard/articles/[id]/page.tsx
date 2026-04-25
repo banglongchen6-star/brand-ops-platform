@@ -365,8 +365,8 @@ function Step1Topics({ article, aiInfo, saveNow, queueSave }: {
         ) : (
           <p className="text-sm text-gray-500">
             从「选题素材库」里挑一个候选，直接进入第 2 步。
-            <Link href="/dashboard/articles/topics" target="_blank" className="ml-1 text-violet-600 hover:underline">
-              管理素材库 ↗
+            <Link href="/dashboard/articles/topics" className="ml-1 text-violet-600 hover:underline">
+              管理素材库 →
             </Link>
           </p>
         )}
