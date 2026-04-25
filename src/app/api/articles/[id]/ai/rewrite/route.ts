@@ -11,7 +11,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   const prompt = buildRewritePrompt(text, instruction);
   try {
-    const out = await generateText({ ...prompt, scope: "articles", maxTokens: Math.min(text.length * 3 + 200, 4000) });
+    const out = await generateText({ ...prompt, scope: "content", maxTokens: Math.min(text.length * 3 + 200, 4000) });
     return Response.json({ rewritten: out.trim() });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "AI 调用失败" }, { status: 500 });

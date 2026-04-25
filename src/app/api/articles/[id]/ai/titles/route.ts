@@ -16,8 +16,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   let titlesText: string, digestText: string;
   try {
     [titlesText, digestText] = await Promise.all([
-      generateText({ ...titlePrompt, scope: "articles", maxTokens: 800 }),
-      generateText({ ...digestPrompt, scope: "articles", maxTokens: 400 }),
+      generateText({ ...titlePrompt, scope: "content", maxTokens: 800 }),
+      generateText({ ...digestPrompt, scope: "content", maxTokens: 400 }),
     ]);
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "AI 调用失败" }, { status: 500 });

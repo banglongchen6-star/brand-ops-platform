@@ -14,7 +14,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const prompt = buildOutlinePrompt(topic, angle, hint);
   let text: string;
   try {
-    text = await generateText({ ...prompt, scope: "articles", maxTokens: 2000 });
+    text = await generateText({ ...prompt, scope: "content", maxTokens: 2000 });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "AI 调用失败" }, { status: 500 });
   }

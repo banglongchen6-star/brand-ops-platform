@@ -22,7 +22,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const prompt = buildTopicsPrompt(trends, userHint);
   let text: string;
   try {
-    text = await generateText({ ...prompt, scope: "articles", maxTokens: 1500 });
+    text = await generateText({ ...prompt, scope: "content", maxTokens: 1500 });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "AI 调用失败" }, { status: 500 });
   }
