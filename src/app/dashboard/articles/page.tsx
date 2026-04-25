@@ -50,6 +50,7 @@ const statusMeta: Record<ArticleStatus, { label: string; color: string; icon: ty
 export default function ArticlesListPage() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [filterStatus, setFilterStatus] = useState<ArticleStatus | "all">("all");
   const [keyword, setKeyword] = useState("");
 
@@ -58,13 +59,30 @@ export default function ArticlesListPage() {
   }, []);
 
   async function loadArticles() {
-    setLoading(true);
-    const { data } = await supabase
+    setLoading(true); setLoadError("");
+    // 先尝试完整查询，如果某列不存在就降级到最小列集
+    const fullCols = "id,title,digest,status,current_step,source_topic,ai_topic_input,cover_image_url,word_count,scheduled_at,published_at,created_at,updated_at";
+    const minCols = "id,title,digest,status,current_step,source_topic,cover_image_url,word_count,scheduled_at,published_at,created_at,updated_at";
+    const first = await supabase
       .from("wx_articles")
-      .select("id,title,digest,status,current_step,source_topic,ai_topic_input,cover_image_url,word_count,scheduled_at,published_at,created_at,updated_at")
+      .select(fullCols)
       .order("updated_at", { ascending: false })
       .limit(200);
-    setArticles((data ?? []) as Article[]);
+    let data: Record<string, unknown>[] | null = first.data;
+    let error = first.error;
+    if (error) {
+      console.warn("[articles list] full select failed, retry minimal:", error);
+      const r = await supabase.from("wx_articles").select(minCols)
+        .order("updated_at", { ascending: false }).limit(200);
+      data = r.data; error = r.error;
+    }
+    if (error) {
+      console.error("[articles list] load failed:", error);
+      setLoadError(error.message);
+      setArticles([]);
+    } else {
+      setArticles((data ?? []) as unknown as Article[]);
+    }
     setLoading(false);
   }
 
@@ -159,6 +177,17 @@ export default function ArticlesListPage() {
           />
         </div>
       </div>
+
+      {/* 数据库报错提示 */}
+      {loadError && (
+        <div className="mb-4 p-4 rounded-xl border border-rose-200 bg-rose-50 text-sm text-rose-800">
+          <div className="font-semibold mb-1">数据库查询失败</div>
+          <div className="text-xs font-mono break-all">{loadError}</div>
+          <div className="text-xs mt-2 text-rose-700">
+            如果提示列不存在，请去 Supabase SQL Editor 跑 supabase/wx_articles.sql 完整建表脚本。
+          </div>
+        </div>
+      )}
 
       {/* 列表 */}
       {loading ? (
