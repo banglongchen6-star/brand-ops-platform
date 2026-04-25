@@ -22,12 +22,20 @@ interface Article {
   status: ArticleStatus;
   current_step: number;
   source_topic: string;
+  ai_topic_input: string;
   cover_image_url: string;
   word_count: number;
   scheduled_at: string | null;
   published_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+function displayName(a: Article): string {
+  if (a.title) return a.title;
+  if (a.source_topic) return a.source_topic;
+  if (a.ai_topic_input) return `话题方向：${a.ai_topic_input}`;
+  return `未命名草稿（${new Date(a.created_at).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}）`;
 }
 
 const statusMeta: Record<ArticleStatus, { label: string; color: string; icon: typeof FileText }> = {
@@ -53,7 +61,7 @@ export default function ArticlesListPage() {
     setLoading(true);
     const { data } = await supabase
       .from("wx_articles")
-      .select("id,title,digest,status,current_step,source_topic,cover_image_url,word_count,scheduled_at,published_at,created_at,updated_at")
+      .select("id,title,digest,status,current_step,source_topic,ai_topic_input,cover_image_url,word_count,scheduled_at,published_at,created_at,updated_at")
       .order("updated_at", { ascending: false })
       .limit(200);
     setArticles((data ?? []) as Article[]);
@@ -67,7 +75,8 @@ export default function ArticlesListPage() {
       return (
         a.title.toLowerCase().includes(k) ||
         a.digest.toLowerCase().includes(k) ||
-        a.source_topic.toLowerCase().includes(k)
+        a.source_topic.toLowerCase().includes(k) ||
+        (a.ai_topic_input || "").toLowerCase().includes(k)
       );
     }
     return true;
@@ -197,7 +206,7 @@ export default function ArticlesListPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start gap-2 mb-1">
                     <h3 className="font-semibold text-gray-900 truncate flex-1">
-                      {a.title || a.source_topic || "（未命名草稿）"}
+                      {displayName(a)}
                     </h3>
                     <span
                       className={`shrink-0 inline-flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-full border ${meta.color}`}

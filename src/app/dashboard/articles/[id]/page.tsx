@@ -78,6 +78,7 @@ export default function ArticleEditorPage() {
   const [saving, setSaving] = useState(false);
   const [aiInfo, setAiInfo] = useState<AIModelInfo | null>(null);
   const saveTimer = useRef<NodeJS.Timeout | null>(null);
+  const pendingPatch = useRef<Partial<Article>>({}); // 累积未发送的字段
 
   // 加载 + 查询当前激活 AI 模型
   useEffect(() => {
@@ -94,16 +95,21 @@ export default function ArticleEditorPage() {
     })();
   }, [id]);
 
-  // 防抖保存（字段类编辑用）
+  // 防抖保存（字段类编辑用）—— 累积 patch，定时器到点一次性发
   const queueSave = useCallback((patch: Partial<Article>) => {
     setArticle((a) => (a ? { ...a, ...patch } : a));
+    pendingPatch.current = { ...pendingPatch.current, ...patch };
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
+      const toSend = pendingPatch.current;
+      pendingPatch.current = {};
+      saveTimer.current = null;
+      if (Object.keys(toSend).length === 0) return;
       setSaving(true);
       await fetch(`/api/articles/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(patch),
+        body: JSON.stringify(toSend),
       });
       setSaving(false);
     }, 600);
@@ -111,15 +117,40 @@ export default function ArticleEditorPage() {
 
   // 立即保存（步骤切换、状态变化用）
   const saveNow = useCallback(async (patch: Partial<Article>) => {
+    // 合并所有 pending 数据，强制立刻发送
+    const merged = { ...pendingPatch.current, ...patch };
+    pendingPatch.current = {};
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     setArticle((a) => (a ? { ...a, ...patch } : a));
+    if (Object.keys(merged).length === 0) return;
     setSaving(true);
     await fetch(`/api/articles/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
+      body: JSON.stringify(merged),
     });
     setSaving(false);
   }, [id]);
+
+  // 退出前 flush（点左上角箭头）
+  const flushAndExit = useCallback(async () => {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
+    const toSend = pendingPatch.current;
+    pendingPatch.current = {};
+    if (Object.keys(toSend).length > 0) {
+      setSaving(true);
+      try {
+        await fetch(`/api/articles/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(toSend),
+          keepalive: true, // 关键：即使页面卸载也尽量送达
+        });
+      } catch {/* 静默 */}
+      setSaving(false);
+    }
+    router.push("/dashboard/articles");
+  }, [id, router]);
 
   if (loading) {
     return <div className="flex items-center justify-center min-h-[60vh] text-gray-500">
@@ -137,11 +168,11 @@ export default function ArticleEditorPage() {
       {/* 顶部条 */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-6 py-3 flex items-center gap-3">
-          <Link href="/dashboard/articles" className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">
+          <button onClick={flushAndExit} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500" title="返回（自动保存）">
             <ArrowLeft size={18} />
-          </Link>
+          </button>
           <h1 className="font-semibold text-gray-900 truncate max-w-md">
-            {article.title || article.source_topic || "未命名草稿"}
+            {article.title || article.source_topic || (article.ai_topic_input ? `话题方向：${article.ai_topic_input}` : "未命名草稿")}
           </h1>
           <span className="text-xs text-gray-400 shrink-0">第 {step}/8 步</span>
           {aiInfo?.provider && (
