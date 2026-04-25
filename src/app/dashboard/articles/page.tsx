@@ -25,6 +25,7 @@ interface Article {
   source_topic: string;
   ai_topic_input: string;
   cover_image_url: string;
+  cover_fallback_url?: string;
   word_count: number;
   scheduled_at: string | null;
   published_at: string | null;
@@ -266,11 +267,18 @@ export default function ArticlesListPage() {
 
                 {/* 主链接区（封面 + 主体） */}
                 <Link href={`/dashboard/articles/${a.id}`} className="flex flex-1 gap-4 min-w-0">
-                  {/* 封面 */}
-                  <div className="w-24 h-24 rounded-lg bg-gradient-to-br from-violet-100 to-blue-100 flex items-center justify-center shrink-0 overflow-hidden">
-                    {a.cover_image_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={a.cover_image_url} alt="" className="w-full h-full object-cover" />
+                  {/* 封面：优先用 cover_image_url，没有就用任意一张已生成的配图 */}
+                  <div className="w-24 h-24 rounded-lg bg-gradient-to-br from-violet-100 to-blue-100 flex items-center justify-center shrink-0 overflow-hidden relative">
+                    {(a.cover_image_url || a.cover_fallback_url) ? (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={a.cover_image_url || a.cover_fallback_url} alt="" className="w-full h-full object-cover" />
+                        {!a.cover_image_url && a.cover_fallback_url && (
+                          <span className="absolute bottom-0.5 right-0.5 text-[9px] px-1 py-0.5 bg-black/50 text-white rounded">
+                            插图
+                          </span>
+                        )}
+                      </>
                     ) : (
                       <PenLine size={28} className="text-violet-300" />
                     )}
