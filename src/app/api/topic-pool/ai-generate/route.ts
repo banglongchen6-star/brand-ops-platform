@@ -60,22 +60,18 @@ ${focus ? `\n- 用户特别关注方向：${focus}` : ""}
   try { candidates = JSON.parse(m[0]); }
   catch { return Response.json({ error: "JSON 解析失败", raw: text.slice(0, 300) }, { status: 500 }); }
 
-  // 写入 DB
-  const rows = candidates.map((c) => ({
-    title: c.title || "",
-    pain_point: c.pain_point || "",
-    target_audience: c.target_audience || "",
-    angle: c.angle || "",
-    tags: Array.isArray(c.tags) ? c.tags : [],
-    status: "candidate",
-    priority: 3,
-    source_type: "ai",
-  })).filter((r) => r.title);
+  // 不写库，仅返回候选 —— 由前端用户挑选后调 /batch-add
+  const cleaned = candidates
+    .filter((c) => c.title)
+    .map((c) => ({
+      title: c.title,
+      pain_point: c.pain_point || "",
+      target_audience: c.target_audience || "",
+      angle: c.angle || "",
+      tags: Array.isArray(c.tags) ? c.tags : [],
+    }));
 
-  if (rows.length === 0) return Response.json({ error: "AI 未返回有效选题" }, { status: 500 });
+  if (cleaned.length === 0) return Response.json({ error: "AI 未返回有效选题" }, { status: 500 });
 
-  const { data, error } = await admin.from("wx_topic_pool").insert(rows).select("*");
-  if (error) return Response.json({ error: error.message }, { status: 500 });
-
-  return Response.json({ topics: data ?? [], count: data?.length ?? 0 });
+  return Response.json({ candidates: cleaned, count: cleaned.length });
 }

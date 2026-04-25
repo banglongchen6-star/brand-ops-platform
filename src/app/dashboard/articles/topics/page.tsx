@@ -596,15 +596,28 @@ function TopicFormModal({ topic, onClose, onSaved }: {
   );
 }
 
-// ============ AI 批量生成 ============
+// ============ AI 批量生成（先预览再挑选添加） ============
+interface AICandidate {
+  title: string;
+  pain_point: string;
+  target_audience: string;
+  angle: string;
+  tags: string[];
+}
+
 function AIGenerateModal({ onClose, onGenerated }: {
   onClose: () => void;
   onGenerated: () => Promise<void>;
 }) {
+  const [stage, setStage] = useState<"form" | "preview">("form");
   const [count, setCount] = useState(10);
   const [focus, setFocus] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  // 预览阶段
+  const [candidates, setCandidates] = useState<AICandidate[]>([]);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
 
   async function generate() {
     setBusy(true); setError("");
@@ -615,15 +628,47 @@ function AIGenerateModal({ onClose, onGenerated }: {
     const j = await r.json();
     setBusy(false);
     if (!r.ok) { setError(j.error || "生成失败"); return; }
+    const list = (j.candidates || []) as AICandidate[];
+    setCandidates(list);
+    setSelected(new Set(list.map((_, i) => i))); // 默认全选
+    setStage("preview");
+  }
+
+  async function addSelected() {
+    const picked = candidates.filter((_, i) => selected.has(i));
+    if (picked.length === 0) { setError("请至少选一个"); return; }
+    setBusy(true); setError("");
+    const r = await fetch("/api/topic-pool/batch-add", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topics: picked }),
+    });
+    const j = await r.json();
+    setBusy(false);
+    if (!r.ok) { setError(j.error || "添加失败"); return; }
     await onGenerated();
+  }
+
+  function toggle(idx: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx); else next.add(idx);
+      return next;
+    });
+  }
+  function selectAll() { setSelected(new Set(candidates.map((_, i) => i))); }
+  function selectNone() { setSelected(new Set()); }
+  function regenerate() {
+    setCandidates([]); setSelected(new Set()); setStage("form"); setError("");
   }
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+      <div className={"bg-white rounded-xl shadow-xl w-full p-6 max-h-[90vh] overflow-y-auto " +
+        (stage === "preview" ? "max-w-2xl" : "max-w-md")}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-            <Sparkles size={16} className="text-violet-600" />Qwen · AI 批量生成选题
+            <Sparkles size={16} className="text-violet-600" />
+            {stage === "form" ? "Qwen · AI 批量生成选题" : `预览 · 挑选要加入素材库的选题（${selected.size}/${candidates.length}）`}
           </h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 text-gray-500">
             <X size={18} />
@@ -634,35 +679,110 @@ function AIGenerateModal({ onClose, onGenerated }: {
           <AlertCircle size={14} />{error}
         </div>}
 
-        <div className="space-y-3">
-          <Field label="生成数量">
-            <select value={count} onChange={(e) => setCount(Number(e.target.value))}
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400">
-              {[5, 10, 15, 20].map((n) => <option key={n} value={n}>{n} 个</option>)}
-            </select>
-          </Field>
+        {stage === "form" ? (
+          <>
+            <div className="space-y-3">
+              <Field label="生成数量">
+                <select value={count} onChange={(e) => setCount(Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400">
+                  {[5, 10, 15, 20].map((n) => <option key={n} value={n}>{n} 个</option>)}
+                </select>
+              </Field>
 
-          <Field label="特别关注方向（可选）">
-            <textarea value={focus} onChange={(e) => setFocus(e.target.value)}
-              placeholder="例：最近想多写一些暑期亲子学琴的话题；或：避开零基础话题，多写进阶..."
-              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:border-violet-400" rows={3} />
-          </Field>
+              <Field label="特别关注方向（可选）">
+                <textarea value={focus} onChange={(e) => setFocus(e.target.value)}
+                  placeholder="例：最近想多写暑期亲子学琴的话题；或：避开零基础，多写进阶..."
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:border-violet-400" rows={3} />
+              </Field>
 
-          <div className="text-[11px] text-gray-500 bg-gray-50 p-2 rounded">
-            AI 会自动避开库里近 60 天已有的选题，避免重复。
-          </div>
-        </div>
+              <div className="text-[11px] text-gray-500 bg-gray-50 p-2 rounded">
+                AI 会自动避开库里近 60 天已有的选题。生成后你可以挑选哪些加入。
+              </div>
+            </div>
 
-        <div className="flex justify-end gap-2 mt-5">
-          <button onClick={onClose} className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50">
-            取消
-          </button>
-          <button onClick={generate} disabled={busy}
-            className="inline-flex items-center gap-1 px-4 py-2 text-sm bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50">
-            {busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-            {busy ? "生成中..." : "开始生成"}
-          </button>
-        </div>
+            <div className="flex justify-end gap-2 mt-5">
+              <button onClick={onClose}
+                className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50">
+                取消
+              </button>
+              <button onClick={generate} disabled={busy}
+                className="inline-flex items-center gap-1 px-4 py-2 text-sm bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50">
+                {busy ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                {busy ? "生成中..." : "开始生成"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
+              <button onClick={selectAll}
+                className="text-xs px-2 py-1 border border-gray-200 rounded-md hover:bg-gray-50 text-gray-600">
+                全选
+              </button>
+              <button onClick={selectNone}
+                className="text-xs px-2 py-1 border border-gray-200 rounded-md hover:bg-gray-50 text-gray-600">
+                全不选
+              </button>
+              <span className="text-xs text-gray-400 ml-2">点击卡片切换选中</span>
+            </div>
+
+            <div className="space-y-2">
+              {candidates.map((c, i) => {
+                const isSelected = selected.has(i);
+                return (
+                  <button key={i} onClick={() => toggle(i)}
+                    className={"w-full text-left rounded-lg border p-3 transition-all " +
+                      (isSelected ? "border-violet-400 bg-violet-50 ring-1 ring-violet-200"
+                        : "border-gray-200 bg-white hover:border-gray-300 opacity-60")}>
+                    <div className="flex items-start gap-2">
+                      <div className={"w-4 h-4 rounded border-2 mt-0.5 shrink-0 flex items-center justify-center " +
+                        (isSelected ? "bg-violet-600 border-violet-600" : "border-gray-300")}>
+                        {isSelected && <Check size={10} className="text-white" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-gray-900 text-sm mb-1">{c.title}</h4>
+                        {c.pain_point && (
+                          <p className="text-xs text-gray-600 mb-1">💡 {c.pain_point}</p>
+                        )}
+                        {c.angle && (
+                          <p className="text-[11px] text-gray-500 mb-1">📐 {c.angle}</p>
+                        )}
+                        {c.target_audience && (
+                          <p className="text-[11px] text-gray-500 mb-1">👥 {c.target_audience}</p>
+                        )}
+                        {c.tags.length > 0 && (
+                          <div className="flex gap-1 flex-wrap mt-1.5">
+                            {c.tags.map((tg, j) => (
+                              <span key={j} className="text-[10px] px-1.5 py-0.5 bg-violet-100 text-violet-700 rounded">{tg}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-between gap-2 mt-5 pt-3 border-t border-gray-100">
+              <button onClick={regenerate} disabled={busy}
+                className="inline-flex items-center gap-1 px-3 py-2 text-sm border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-50">
+                <Sparkles size={13} />重新生成
+              </button>
+              <div className="flex gap-2">
+                <button onClick={onClose}
+                  className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50">
+                  全部丢弃
+                </button>
+                <button onClick={addSelected} disabled={busy || selected.size === 0}
+                  className="inline-flex items-center gap-1 px-4 py-2 text-sm bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50">
+                  {busy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                  {busy ? "添加中..." : `添加选中（${selected.size}）`}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
