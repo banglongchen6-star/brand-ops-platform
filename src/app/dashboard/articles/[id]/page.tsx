@@ -206,7 +206,7 @@ export default function ArticleEditorPage() {
         {step === 5 && <Step5Images article={article} aiInfo={aiInfo} saveNow={saveNow} />}
         {step === 6 && <Step6Titles article={article} aiInfo={aiInfo} saveNow={saveNow} queueSave={queueSave} />}
         {step === 7 && <Step7Preview article={article} saveNow={saveNow} />}
-        {step === 8 && <StepPlaceholder phase={4} step={8} />}
+        {step === 8 && <Step8Publish article={article} saveNow={saveNow} />}
       </div>
 
       {/* 底部条 */}
@@ -1078,6 +1078,152 @@ function PhoneFrame({ children }: { children: React.ReactNode }) {
           </span>
         </div>
         <div className="h-[calc(100%-28px)] overflow-y-auto">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// ============ Step 8: 发布到微信草稿箱 ============
+interface PublishConfig {
+  id: string; name: string; app_id: string; account_type: string;
+  default_author: string; enabled: boolean;
+}
+
+function Step8Publish({ article, saveNow }: {
+  article: Article; saveNow: (p: Partial<Article>) => Promise<void>;
+}) {
+  const [configs, setConfigs] = useState<PublishConfig[]>([]);
+  const [selectedConfig, setSelectedConfig] = useState<string>("");
+  const [publishing, setPublishing] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message: string; details?: Record<string, unknown> } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const r = await fetch("/api/wx-publish-configs");
+      const j = await r.json();
+      const enabled = (j.configs || []).filter((c: PublishConfig) => c.enabled);
+      setConfigs(enabled);
+      const initial = (article as Article & { publish_config_id?: string }).publish_config_id || enabled[0]?.id || "";
+      if (initial) setSelectedConfig(initial);
+    })();
+  }, [article]);
+
+  // 校验：标题/封面/HTML 缺哪个
+  const checks = [
+    { ok: !!article.title, label: "标题" },
+    { ok: !!article.digest, label: "摘要" },
+    { ok: !!article.cover_image_url, label: "封面图" },
+    { ok: !!article.content_html, label: "微信预览 HTML（第 7 步生成）" },
+    { ok: configs.length > 0, label: "至少一个公众号配置" },
+  ];
+  const ready = checks.every((c) => c.ok) && !!selectedConfig;
+
+  async function publish() {
+    setPublishing(true); setResult(null);
+    const r = await fetch(`/api/articles/${article.id}/publish/draft`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ publish_config_id: selectedConfig }),
+    });
+    const j = await r.json();
+    setPublishing(false);
+    if (!r.ok) {
+      setResult({ ok: false, message: j.error || "发布失败" });
+    } else {
+      setResult({ ok: true, message: "已成功推送到公众号草稿箱", details: j });
+      await saveNow({ status: "ready", current_step: 8 });
+    }
+  }
+
+  return (
+    <div className="grid lg:grid-cols-2 gap-4">
+      {/* 左：检查 + 发布操作 */}
+      <div className="space-y-4">
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-3">
+            <Send size={18} className="text-blue-500" />第 8 步 · 推送到公众号草稿箱
+          </h2>
+
+          {/* 发布前检查 */}
+          <div className="mb-4">
+            <div className="text-xs text-gray-600 mb-2">发布前检查</div>
+            <div className="space-y-1">
+              {checks.map((c, i) => (
+                <div key={i} className={"flex items-center gap-2 text-sm " + (c.ok ? "text-gray-700" : "text-rose-600")}>
+                  {c.ok ? <Check size={14} className="text-green-600" /> : <X size={14} />}
+                  {c.label}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 选择公众号 */}
+          {configs.length === 0 ? (
+            <div className="mb-4 p-3 bg-amber-50 text-amber-800 rounded-lg text-sm">
+              还没有公众号配置。
+              <Link href="/dashboard/articles/settings" className="underline ml-1">去添加</Link>
+            </div>
+          ) : (
+            <div className="mb-4">
+              <label className="block text-xs text-gray-600 mb-1">选择推送目标</label>
+              <select value={selectedConfig} onChange={(e) => setSelectedConfig(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400">
+                {configs.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}（{c.account_type === "subscription" ? "订阅号" : "服务号"} · {c.app_id}）
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <button onClick={publish} disabled={!ready || publishing}
+            className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed">
+            {publishing ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+            {publishing ? "正在推送（上传图片可能 30-60s）..." : "推送到草稿箱"}
+          </button>
+
+          {result && (
+            <div className={"mt-4 p-3 rounded-lg text-sm " +
+              (result.ok ? "bg-green-50 text-green-800" : "bg-rose-50 text-rose-800")}>
+              <div className="flex items-start gap-2">
+                {result.ok ? <Check size={14} className="mt-0.5 text-green-600" />
+                  : <AlertCircle size={14} className="mt-0.5 text-rose-600" />}
+                <div className="flex-1">
+                  <p className="font-semibold">{result.ok ? "推送成功" : "推送失败"}</p>
+                  <p className="text-xs mt-1 break-words">{result.message}</p>
+                  {result.ok && (
+                    <p className="text-xs mt-2 text-gray-600">
+                      去公众号后台 → 内容与互动 → 草稿箱 找到这篇文章，可以预览/编辑/群发。
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 后续可加：定时发布、群发设置 */}
+        <div className="bg-gray-50 rounded-xl border border-dashed border-gray-300 p-5 text-center text-sm text-gray-500">
+          <Sparkles size={16} className="inline mr-1" />
+          定时发布、敏感词检测会在 P5 阶段加入
+        </div>
+      </div>
+
+      {/* 右：文章概览 */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <h3 className="font-semibold text-gray-900 mb-3 text-sm">文章概览</h3>
+        {article.cover_image_url && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={article.cover_image_url} alt="封面"
+            className="w-full aspect-video object-cover rounded-lg mb-3" />
+        )}
+        <h4 className="font-bold text-gray-900 text-base mb-1">{article.title || "（未填标题）"}</h4>
+        <p className="text-xs text-gray-400 mb-2">{article.author || "音乐密码"} · {article.word_count} 字</p>
+        <p className="text-sm text-gray-600 leading-relaxed mb-4">{article.digest || "（未填摘要）"}</p>
+        <div className="text-[11px] text-gray-400 border-t pt-3">
+          推送后可在公众号后台编辑、配二维码、群发。<br />
+          注意：草稿箱模式不会自动发推送给粉丝，需在后台手动发布。
+        </div>
       </div>
     </div>
   );
