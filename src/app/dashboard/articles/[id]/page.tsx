@@ -5,14 +5,15 @@
 // P1 实装步骤: ① 话题筛选 ② 选题确认 ③ AI大纲 ④ 正文生成 ⑥ 标题摘要 + 智能改写
 // P2/P3/P4 占位步骤: ⑤ 配图  ⑦ 预览  ⑧ 发布
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft, ChevronRight, Sparkles, Lightbulb, FileText,
   Image as ImageIcon, Type, Smartphone, Send, Check, Loader2,
-  RefreshCw, Wand2, AlertCircle, Save, Upload,
+  RefreshCw, Wand2, AlertCircle, Save, Upload, Copy, Code,
 } from "lucide-react";
+import { renderWxHtml } from "@/lib/wxArticleRender";
 
 // ========= 类型 =========
 type Status = "draft" | "ai_writing" | "ready" | "scheduled" | "published" | "failed";
@@ -204,7 +205,7 @@ export default function ArticleEditorPage() {
         {step === 4 && <Step4Content article={article} aiInfo={aiInfo} saveNow={saveNow} queueSave={queueSave} />}
         {step === 5 && <Step5Images article={article} aiInfo={aiInfo} saveNow={saveNow} />}
         {step === 6 && <Step6Titles article={article} aiInfo={aiInfo} saveNow={saveNow} queueSave={queueSave} />}
-        {step === 7 && <StepPlaceholder phase={3} step={7} />}
+        {step === 7 && <Step7Preview article={article} saveNow={saveNow} />}
         {step === 8 && <StepPlaceholder phase={4} step={8} />}
       </div>
 
@@ -887,6 +888,196 @@ function ImageCard({ img, isCover, uploading, onPromptChange, onRegenerate, onSe
             原图
           </a>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ============ Step 7: 微信预览（iPhone 手机壳 + 实时渲染） ============
+const ACCENT_PRESETS = [
+  { name: "品牌紫", value: "#7c3aed" },
+  { name: "经典蓝", value: "#2563eb" },
+  { name: "活力橘", value: "#ea580c" },
+  { name: "暖玫红", value: "#e11d48" },
+  { name: "森林绿", value: "#059669" },
+  { name: "沉稳灰", value: "#4b5563" },
+];
+
+function Step7Preview({ article, saveNow }: {
+  article: Article; saveNow: (p: Partial<Article>) => Promise<void>;
+}) {
+  const [images, setImages] = useState<ArticleImage[]>([]);
+  const [accent, setAccent] = useState("#7c3aed");
+  const [showTitle, setShowTitle] = useState(false);
+  const [showCTA, setShowCTA] = useState(true);
+  const [fontSize, setFontSize] = useState(15);
+  const [viewMode, setViewMode] = useState<"phone" | "html">("phone");
+  const [copied, setCopied] = useState(false);
+
+  // 加载图片
+  useEffect(() => {
+    (async () => {
+      const r = await fetch(`/api/articles/${article.id}/ai/images/check`, { method: "POST" });
+      const j = await r.json();
+      if (Array.isArray(j.images)) setImages(j.images);
+    })();
+  }, [article.id]);
+
+  // 渲染 HTML（useMemo 实时计算）
+  const html = useMemo(() => {
+    return renderWxHtml(
+      {
+        title: article.title,
+        digest: article.digest,
+        author: article.author,
+        content_md: article.content_md,
+        cover_image_url: article.cover_image_url,
+      },
+      images.map((i) => ({ position: i.position, image_url: i.image_url, status: i.status })),
+      { accentColor: accent, showTitle, showCTA, fontSize },
+    );
+  }, [article.title, article.digest, article.author, article.content_md, article.cover_image_url, images, accent, showTitle, showCTA, fontSize]);
+
+  // 防抖保存到 content_html
+  useEffect(() => {
+    const t = setTimeout(() => { saveNow({ content_html: html }); }, 1200);
+    return () => clearTimeout(t);
+  }, [html, saveNow]);
+
+  async function copyHtml() {
+    try {
+      await navigator.clipboard.writeText(html);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { alert("复制失败，请手动选中复制"); }
+  }
+
+  if (!article.content_md) {
+    return (
+      <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+        <AlertCircle size={28} className="mx-auto text-amber-500 mb-2" />
+        <p className="text-sm text-gray-600">请先回到第 4 步生成正文，这里才有内容可预览。</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid lg:grid-cols-[340px_1fr] gap-4">
+      {/* 左：样式设置 */}
+      <div className="space-y-4">
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <h3 className="font-semibold text-gray-900 mb-3 text-sm flex items-center gap-2">
+            <Smartphone size={14} className="text-indigo-500" />排版设置
+          </h3>
+
+          <div className="mb-4">
+            <label className="block text-xs text-gray-600 mb-2">主题色（小标题+加粗+CTA）</label>
+            <div className="flex flex-wrap gap-2">
+              {ACCENT_PRESETS.map((p) => (
+                <button key={p.value} onClick={() => setAccent(p.value)}
+                  className={"flex items-center gap-1 px-2 py-1 text-xs rounded-md border transition-all " +
+                    (accent === p.value ? "border-gray-900 ring-1 ring-gray-900" : "border-gray-200 hover:border-gray-400")}>
+                  <span className="w-3 h-3 rounded-full" style={{ backgroundColor: p.value }} />
+                  {p.name}
+                </button>
+              ))}
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <input type="color" value={accent} onChange={(e) => setAccent(e.target.value)}
+                className="w-8 h-8 border border-gray-200 rounded cursor-pointer" />
+              <span className="text-xs text-gray-500">自定义：{accent}</span>
+            </div>
+          </div>
+
+          <div className="mb-4">
+            <label className="block text-xs text-gray-600 mb-1">正文字号：{fontSize}px</label>
+            <input type="range" min={13} max={18} value={fontSize}
+              onChange={(e) => setFontSize(Number(e.target.value))}
+              className="w-full" />
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-gray-700 mb-2">
+            <input type="checkbox" checked={showTitle} onChange={(e) => setShowTitle(e.target.checked)} />
+            HTML 内显示标题（微信自带标题，一般不用）
+          </label>
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={showCTA} onChange={(e) => setShowCTA(e.target.checked)} />
+            文末显示品牌 CTA 卡片
+          </label>
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <h3 className="font-semibold text-gray-900 mb-3 text-sm flex items-center gap-2">
+            <Code size={14} className="text-indigo-500" />HTML 源码
+          </h3>
+          <p className="text-xs text-gray-500 mb-3">复制此 HTML 粘贴到微信公众号编辑器里（切换到"源码"模式）。</p>
+          <div className="flex gap-2 mb-2">
+            <button onClick={copyHtml}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs bg-violet-600 text-white rounded-lg hover:bg-violet-700">
+              {copied ? <Check size={12} /> : <Copy size={12} />}
+              {copied ? "已复制" : "复制 HTML"}
+            </button>
+            <button onClick={() => setViewMode(viewMode === "phone" ? "html" : "phone")}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-200 rounded-lg hover:bg-gray-50">
+              {viewMode === "phone" ? "查看源码" : "返回预览"}
+            </button>
+          </div>
+          <div className="text-[10px] text-gray-400">字符数：{html.length.toLocaleString()}</div>
+        </div>
+      </div>
+
+      {/* 右：预览 */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        {viewMode === "phone" ? (
+          <div className="flex flex-col items-center">
+            <div className="text-xs text-gray-500 mb-3">iPhone 14 · 公众号文章预览</div>
+            <PhoneFrame>
+              <div className="bg-white min-h-full">
+                {/* 微信公众号文章头部 */}
+                <div className="px-4 pt-5 pb-3 border-b border-gray-100">
+                  <h1 className="text-[19px] font-bold text-gray-900 leading-tight mb-2">
+                    {article.title || "（未填标题）"}
+                  </h1>
+                  <div className="flex items-center gap-2 text-xs text-gray-400">
+                    <span className="inline-block w-5 h-5 rounded-full bg-gradient-to-br from-violet-400 to-fuchsia-400" />
+                    <span className="text-violet-600">{article.author || "音乐密码"}</span>
+                    <span>·</span>
+                    <span>刚刚</span>
+                  </div>
+                </div>
+                {/* 渲染后的 HTML */}
+                <div className="px-4 py-4" dangerouslySetInnerHTML={{ __html: html }} />
+              </div>
+            </PhoneFrame>
+          </div>
+        ) : (
+          <div>
+            <div className="text-xs text-gray-500 mb-2">HTML 源码（可直接复制）</div>
+            <pre className="bg-gray-900 text-green-300 text-[11px] p-4 rounded-lg overflow-auto max-h-[70vh] whitespace-pre-wrap break-all leading-relaxed">
+              {html}
+            </pre>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PhoneFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="relative w-[360px] bg-black rounded-[40px] p-3 shadow-2xl">
+      {/* 顶部刘海 */}
+      <div className="absolute top-2 left-1/2 -translate-x-1/2 w-32 h-6 bg-black rounded-b-2xl z-10" />
+      <div className="w-full h-[640px] bg-white rounded-[30px] overflow-hidden relative">
+        {/* 状态栏占位 */}
+        <div className="h-7 flex items-center justify-between px-6 text-[10px] font-semibold text-gray-700 bg-white shrink-0">
+          <span>9:41</span>
+          <span className="flex items-center gap-1">
+            <span>●●●●</span>
+            <span>100%</span>
+          </span>
+        </div>
+        <div className="h-[calc(100%-28px)] overflow-y-auto">{children}</div>
       </div>
     </div>
   );
