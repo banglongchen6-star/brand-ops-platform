@@ -182,6 +182,10 @@ export default function ArticleEditorPage() {
             </span>
           )}
           <div className="flex-1" />
+          <Link href="/dashboard/articles/topics"
+            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50 hover:text-violet-700 hover:border-violet-300">
+            <Lightbulb size={12} />选题素材库
+          </Link>
           {saving ? (
             <span className="text-xs text-gray-400 flex items-center gap-1">
               <Loader2 size={11} className="animate-spin" />保存中...
@@ -363,12 +367,7 @@ function Step1Topics({ article, aiInfo, saveNow, queueSave }: {
             {error && <div className="mt-3 text-sm text-rose-600 flex items-center gap-1"><AlertCircle size={14} />{error}</div>}
           </>
         ) : (
-          <p className="text-sm text-gray-500">
-            从「选题素材库」里挑一个候选，直接进入第 2 步。
-            <Link href="/dashboard/articles/topics" className="ml-1 text-violet-600 hover:underline">
-              管理素材库 →
-            </Link>
-          </p>
+          <p className="text-sm text-gray-500">从「选题素材库」里挑一个候选，直接进入第 2 步。</p>
         )}
       </div>
 
