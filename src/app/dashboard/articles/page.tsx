@@ -11,7 +11,6 @@ import {
   PenLine, Plus, Loader2, Search, FileText, Clock, CheckCircle2,
   AlertCircle, Calendar, Settings,
 } from "lucide-react";
-import { supabase } from "@/lib/supabase";
 
 type ArticleStatus = "draft" | "ai_writing" | "ready" | "scheduled" | "published" | "failed";
 
@@ -60,28 +59,19 @@ export default function ArticlesListPage() {
 
   async function loadArticles() {
     setLoading(true); setLoadError("");
-    // 先尝试完整查询，如果某列不存在就降级到最小列集
-    const fullCols = "id,title,digest,status,current_step,source_topic,ai_topic_input,cover_image_url,word_count,scheduled_at,published_at,created_at,updated_at";
-    const minCols = "id,title,digest,status,current_step,source_topic,cover_image_url,word_count,scheduled_at,published_at,created_at,updated_at";
-    const first = await supabase
-      .from("wx_articles")
-      .select(fullCols)
-      .order("updated_at", { ascending: false })
-      .limit(200);
-    let data: Record<string, unknown>[] | null = first.data;
-    let error = first.error;
-    if (error) {
-      console.warn("[articles list] full select failed, retry minimal:", error);
-      const r = await supabase.from("wx_articles").select(minCols)
-        .order("updated_at", { ascending: false }).limit(200);
-      data = r.data; error = r.error;
-    }
-    if (error) {
-      console.error("[articles list] load failed:", error);
-      setLoadError(error.message);
+    // 走服务端 API（service role），避免 RLS 静默吞数据
+    try {
+      const r = await fetch("/api/articles");
+      const j = await r.json();
+      if (!r.ok) {
+        setLoadError(j.error || "加载失败");
+        setArticles([]);
+      } else {
+        setArticles((j.articles ?? []) as Article[]);
+      }
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "网络错误");
       setArticles([]);
-    } else {
-      setArticles((data ?? []) as unknown as Article[]);
     }
     setLoading(false);
   }
