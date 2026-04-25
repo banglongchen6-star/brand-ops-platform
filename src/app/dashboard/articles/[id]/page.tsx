@@ -11,7 +11,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft, ChevronRight, Sparkles, Lightbulb, FileText,
   Image as ImageIcon, Type, Smartphone, Send, Check, Loader2,
-  RefreshCw, Wand2, AlertCircle, Save, Upload, Copy, Code,
+  RefreshCw, Wand2, AlertCircle, Save, Upload, Copy, Code, X,
 } from "lucide-react";
 import { renderWxHtml } from "@/lib/wxArticleRender";
 
