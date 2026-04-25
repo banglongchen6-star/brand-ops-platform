@@ -11,7 +11,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   PenLine, Plus, Loader2, Search, FileText, Clock, CheckCircle2,
-  AlertCircle, Calendar, Settings, Trash2, Copy, X,
+  AlertCircle, Calendar, Settings, Trash2, Copy, X, Lightbulb,
 } from "lucide-react";
 
 type ArticleStatus = "draft" | "ai_writing" | "ready" | "scheduled" | "published" | "failed";
@@ -161,6 +161,10 @@ export default function ArticlesListPage() {
           <p className="text-sm text-gray-500 mt-1">公众号文章 AI 写作 · 配图 · 一键推送</p>
         </div>
         <div className="flex items-center gap-2">
+          <Link href="/dashboard/articles/topics"
+            className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50">
+            <Lightbulb size={14} />选题素材库
+          </Link>
           <Link href="/dashboard/articles/settings"
             className="flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50">
             <Settings size={14} />公众号配置

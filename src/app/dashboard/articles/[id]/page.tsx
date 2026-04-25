@@ -262,15 +262,51 @@ export default function ArticleEditorPage() {
   );
 }
 
-// ============ Step 1: 话题筛选 ============
+// ============ Step 1: 话题筛选（双源：素材库 / 热榜） ============
+interface PoolTopic {
+  id: string;
+  title: string;
+  pain_point: string;
+  angle: string;
+  tags: string[];
+  priority: number;
+  status: string;
+  scheduled_at: string | null;
+}
+
 function Step1Topics({ article, aiInfo, saveNow, queueSave }: {
   article: Article; aiInfo: AIModelInfo | null;
   saveNow: (p: Partial<Article>) => Promise<void>; queueSave: (p: Partial<Article>) => void;
 }) {
+  const [tab, setTab] = useState<"trend" | "pool">("pool");
   const [candidates, setCandidates] = useState<TopicCandidate[]>([]);
+  const [poolTopics, setPoolTopics] = useState<PoolTopic[]>([]);
+  const [poolLoading, setPoolLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [hint, setHint] = useState(article.ai_topic_input || "");
+
+  useEffect(() => {
+    if (tab !== "pool") return;
+    setPoolLoading(true);
+    fetch("/api/topic-pool?status=candidate")
+      .then((r) => r.json())
+      .then((j) => setPoolTopics(j.topics || []))
+      .finally(() => setPoolLoading(false));
+  }, [tab]);
+
+  async function pickPoolTopic(t: PoolTopic) {
+    await fetch(`/api/topic-pool/${t.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "used", article_id: article.id }),
+    });
+    await saveNow({
+      source_topic: t.title,
+      source_angle: t.angle,
+      ai_topic_input: t.pain_point,
+      current_step: 2,
+    });
+  }
 
   async function runAI() {
     setLoading(true); setError("");
@@ -297,21 +333,46 @@ function Step1Topics({ article, aiInfo, saveNow, queueSave }: {
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-xl border border-gray-200 p-5">
-        <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-1">
+        <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-3">
           <Lightbulb size={18} className="text-amber-500" />
           第 1 步 · 话题筛选
         </h2>
-        <p className="text-sm text-gray-500 mb-4">从今日各平台热榜里，让 AI 挑选 5 个适合音乐密码品牌的选题。</p>
-        <textarea
-          value={hint} onChange={(e) => setHint(e.target.value)}
-          placeholder="（可选）输入特别关注的方向，如：最近想多写一些 AI 与音乐结合的话题"
-          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:border-violet-400" rows={2}
-        />
-        <AIButton onClick={runAI} loading={loading} aiInfo={aiInfo} idleText="筛选选题" loadingText="思考中..." />
-        {error && <div className="mt-3 text-sm text-rose-600 flex items-center gap-1"><AlertCircle size={14} />{error}</div>}
+
+        <div className="inline-flex border border-gray-200 rounded-lg p-0.5 bg-gray-50 mb-4">
+          <button onClick={() => setTab("pool")}
+            className={"px-3 py-1.5 text-xs rounded-md " +
+              (tab === "pool" ? "bg-white text-violet-700 shadow-sm" : "text-gray-500 hover:text-gray-700")}>
+            📚 从素材库选
+          </button>
+          <button onClick={() => setTab("trend")}
+            className={"px-3 py-1.5 text-xs rounded-md " +
+              (tab === "trend" ? "bg-white text-violet-700 shadow-sm" : "text-gray-500 hover:text-gray-700")}>
+            🔥 从今日热榜筛
+          </button>
+        </div>
+
+        {tab === "trend" ? (
+          <>
+            <p className="text-sm text-gray-500 mb-3">让 AI 从今日各平台热榜里挑选适合品牌的选题。</p>
+            <textarea
+              value={hint} onChange={(e) => setHint(e.target.value)}
+              placeholder="可选：输入特别关注的方向"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:border-violet-400" rows={2}
+            />
+            <AIButton onClick={runAI} loading={loading} aiInfo={aiInfo} idleText="筛选选题" loadingText="思考中..." />
+            {error && <div className="mt-3 text-sm text-rose-600 flex items-center gap-1"><AlertCircle size={14} />{error}</div>}
+          </>
+        ) : (
+          <p className="text-sm text-gray-500">
+            从「选题素材库」里挑一个候选，直接进入第 2 步。
+            <Link href="/dashboard/articles/topics" target="_blank" className="ml-1 text-violet-600 hover:underline">
+              管理素材库 ↗
+            </Link>
+          </p>
+        )}
       </div>
 
-      {candidates.length > 0 && (
+      {tab === "trend" && candidates.length > 0 && (
         <div className="space-y-2">
           {candidates.map((c, i) => (
             <button key={i} onClick={() => pickTopic(c)}
@@ -327,11 +388,60 @@ function Step1Topics({ article, aiInfo, saveNow, queueSave }: {
         </div>
       )}
 
-      {/* 手动跳过 */}
+      {tab === "pool" && (
+        <div className="space-y-2">
+          {poolLoading ? (
+            <div className="flex items-center justify-center py-8 text-gray-400">
+              <Loader2 className="animate-spin mr-2" size={16} />加载中...
+            </div>
+          ) : poolTopics.length === 0 ? (
+            <div className="bg-white rounded-xl border border-dashed border-gray-300 p-8 text-center text-sm text-gray-500">
+              <p className="mb-2">素材库还没有候选选题</p>
+              <Link href="/dashboard/articles/topics"
+                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-violet-600 text-white rounded-lg hover:bg-violet-700">
+                <Sparkles size={11} />去 AI 生成或手动添加
+              </Link>
+            </div>
+          ) : (
+            poolTopics.map((t) => (
+              <button key={t.id} onClick={() => pickPoolTopic(t)}
+                className="w-full text-left bg-white rounded-xl border border-gray-200 p-4 hover:border-violet-400 hover:shadow-sm transition-all">
+                <div className="flex items-start justify-between gap-3 mb-1">
+                  <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                    {t.title}
+                    {t.priority >= 4 && <span className="text-[10px] text-amber-600">★</span>}
+                  </h3>
+                  {t.scheduled_at && (
+                    <span className="text-[11px] px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full shrink-0">
+                      📅 {t.scheduled_at}
+                    </span>
+                  )}
+                </div>
+                {t.pain_point && (
+                  <p className="text-sm text-gray-600 mb-1"><span className="text-gray-400">痛点：</span>{t.pain_point}</p>
+                )}
+                {t.angle && (
+                  <p className="text-sm text-gray-600 mb-1"><span className="text-gray-400">角度：</span>{t.angle}</p>
+                )}
+                {t.tags.length > 0 && (
+                  <div className="flex gap-1 flex-wrap mt-2">
+                    {t.tags.map((tg, i) => (
+                      <span key={i} className="text-[10px] px-1.5 py-0.5 bg-violet-50 text-violet-700 rounded">
+                        {tg}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+
       <div className="text-center pt-2">
         <button onClick={() => queueSave({ ai_topic_input: hint, current_step: 2 })}
           className="text-sm text-gray-500 hover:text-violet-600 underline">
-          跳过 AI 筛选，手动输入选题
+          跳过，手动输入选题
         </button>
       </div>
     </div>
