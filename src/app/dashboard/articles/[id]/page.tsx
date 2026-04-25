@@ -45,6 +45,19 @@ interface OutlineJson { intro: string; sections: OutlineSection[]; conclusion: s
 interface TopicCandidate { trend_id: string; topic: string; reason: string; angle: string }
 interface TitleOption { title: string; style: string; emoji_used: boolean }
 
+// 模型显示名映射
+const PROVIDER_LABEL: Record<string, string> = {
+  qwen: "Qwen",
+  claude: "Claude",
+  openai_compat: "GPT",
+};
+function providerLabel(provider: string | null | undefined): string {
+  if (!provider) return "AI";
+  return PROVIDER_LABEL[provider] || provider.toUpperCase();
+}
+
+interface AIModelInfo { provider: string | null; model: string | null; label: string | null; source: string }
+
 const STEPS = [
   { id: 1, label: "话题筛选", icon: Lightbulb,  color: "from-amber-400 to-orange-400" },
   { id: 2, label: "选题确认", icon: Check,      color: "from-orange-400 to-rose-400" },
@@ -62,14 +75,20 @@ export default function ArticleEditorPage() {
   const [article, setArticle] = useState<Article | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [aiInfo, setAiInfo] = useState<AIModelInfo | null>(null);
   const saveTimer = useRef<NodeJS.Timeout | null>(null);
 
-  // 加载
+  // 加载 + 查询当前激活 AI 模型
   useEffect(() => {
     (async () => {
-      const r = await fetch(`/api/articles/${id}`);
+      const [r, rAI] = await Promise.all([
+        fetch(`/api/articles/${id}`),
+        fetch("/api/ai-config/current?scope=content"),
+      ]);
       const j = await r.json();
+      const jAI = await rAI.json();
       if (j.article) setArticle(j.article as Article);
+      setAiInfo(jAI as AIModelInfo);
       setLoading(false);
     })();
   }, [id]);
@@ -124,6 +143,12 @@ export default function ArticleEditorPage() {
             {article.title || article.source_topic || "未命名草稿"}
           </h1>
           <span className="text-xs text-gray-400 shrink-0">第 {step}/8 步</span>
+          {aiInfo?.provider && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] bg-violet-50 text-violet-700 rounded-full border border-violet-200">
+              <Sparkles size={10} />
+              {providerLabel(aiInfo.provider)} · {aiInfo.model}
+            </span>
+          )}
           <div className="flex-1" />
           {saving ? (
             <span className="text-xs text-gray-400 flex items-center gap-1">
@@ -173,12 +198,12 @@ export default function ArticleEditorPage() {
 
       {/* 主内容 */}
       <div className="max-w-7xl mx-auto px-6 py-6 pb-20">
-        {step === 1 && <Step1Topics article={article} saveNow={saveNow} queueSave={queueSave} />}
+        {step === 1 && <Step1Topics article={article} aiInfo={aiInfo} saveNow={saveNow} queueSave={queueSave} />}
         {step === 2 && <Step2Confirm article={article} queueSave={queueSave} />}
-        {step === 3 && <Step3Outline article={article} saveNow={saveNow} queueSave={queueSave} />}
-        {step === 4 && <Step4Content article={article} saveNow={saveNow} queueSave={queueSave} />}
+        {step === 3 && <Step3Outline article={article} aiInfo={aiInfo} saveNow={saveNow} queueSave={queueSave} />}
+        {step === 4 && <Step4Content article={article} aiInfo={aiInfo} saveNow={saveNow} queueSave={queueSave} />}
         {step === 5 && <StepPlaceholder phase={2} step={5} />}
-        {step === 6 && <Step6Titles article={article} saveNow={saveNow} queueSave={queueSave} />}
+        {step === 6 && <Step6Titles article={article} aiInfo={aiInfo} saveNow={saveNow} queueSave={queueSave} />}
         {step === 7 && <StepPlaceholder phase={3} step={7} />}
         {step === 8 && <StepPlaceholder phase={4} step={8} />}
       </div>
@@ -206,8 +231,9 @@ export default function ArticleEditorPage() {
 }
 
 // ============ Step 1: 话题筛选 ============
-function Step1Topics({ article, saveNow, queueSave }: {
-  article: Article; saveNow: (p: Partial<Article>) => Promise<void>; queueSave: (p: Partial<Article>) => void;
+function Step1Topics({ article, aiInfo, saveNow, queueSave }: {
+  article: Article; aiInfo: AIModelInfo | null;
+  saveNow: (p: Partial<Article>) => Promise<void>; queueSave: (p: Partial<Article>) => void;
 }) {
   const [candidates, setCandidates] = useState<TopicCandidate[]>([]);
   const [loading, setLoading] = useState(false);
@@ -249,11 +275,7 @@ function Step1Topics({ article, saveNow, queueSave }: {
           placeholder="（可选）输入特别关注的方向，如：最近想多写一些 AI 与音乐结合的话题"
           className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:border-violet-400" rows={2}
         />
-        <button onClick={runAI} disabled={loading}
-          className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-violet-600 text-white text-sm rounded-lg hover:bg-violet-700 disabled:opacity-50">
-          {loading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-          {loading ? "AI 思考中..." : "AI 筛选选题"}
-        </button>
+        <AIButton onClick={runAI} loading={loading} aiInfo={aiInfo} idleText="筛选选题" loadingText="思考中..." />
         {error && <div className="mt-3 text-sm text-rose-600 flex items-center gap-1"><AlertCircle size={14} />{error}</div>}
       </div>
 
@@ -323,8 +345,9 @@ function Step2Confirm({ article, queueSave }: {
 }
 
 // ============ Step 3: AI大纲 ============
-function Step3Outline({ article, saveNow, queueSave }: {
-  article: Article; saveNow: (p: Partial<Article>) => Promise<void>; queueSave: (p: Partial<Article>) => void;
+function Step3Outline({ article, aiInfo, saveNow, queueSave }: {
+  article: Article; aiInfo: AIModelInfo | null;
+  saveNow: (p: Partial<Article>) => Promise<void>; queueSave: (p: Partial<Article>) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -352,11 +375,9 @@ function Step3Outline({ article, saveNow, queueSave }: {
           <FileText size={18} className="text-rose-500" />第 3 步 · AI 大纲
         </h2>
         <p className="text-sm text-gray-500 mb-4">基于选题，AI 生成结构化大纲。可以直接编辑。</p>
-        <button onClick={runAI} disabled={loading}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 text-white text-sm rounded-lg hover:bg-violet-700 disabled:opacity-50">
-          {loading ? <Loader2 size={14} className="animate-spin" /> : outline ? <RefreshCw size={14} /> : <Sparkles size={14} />}
-          {loading ? "生成中..." : outline ? "重新生成大纲" : "生成大纲"}
-        </button>
+        <AIButton onClick={runAI} loading={loading} aiInfo={aiInfo}
+          idleText={outline ? "重新生成大纲" : "生成大纲"} loadingText="生成中..."
+          icon={outline ? "refresh" : "sparkles"} />
         {error && <div className="mt-3 text-sm text-rose-600 flex items-center gap-1"><AlertCircle size={14} />{error}</div>}
       </div>
 
@@ -412,8 +433,9 @@ function Step3Outline({ article, saveNow, queueSave }: {
 }
 
 // ============ Step 4: 正文生成 ============
-function Step4Content({ article, saveNow, queueSave }: {
-  article: Article; saveNow: (p: Partial<Article>) => Promise<void>; queueSave: (p: Partial<Article>) => void;
+function Step4Content({ article, aiInfo, saveNow, queueSave }: {
+  article: Article; aiInfo: AIModelInfo | null;
+  saveNow: (p: Partial<Article>) => Promise<void>; queueSave: (p: Partial<Article>) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -455,11 +477,9 @@ function Step4Content({ article, saveNow, queueSave }: {
           <h2 className="font-semibold text-gray-900 flex items-center gap-2">
             <Sparkles size={18} className="text-fuchsia-500" />第 4 步 · 正文 (Markdown)
           </h2>
-          <button onClick={runAI} disabled={loading}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-xs rounded-lg hover:bg-violet-700 disabled:opacity-50">
-            {loading ? <Loader2 size={12} className="animate-spin" /> : article.content_md ? <RefreshCw size={12} /> : <Sparkles size={12} />}
-            {loading ? "AI 写作中..." : article.content_md ? "重写" : "AI 写作"}
-          </button>
+          <AIButton onClick={runAI} loading={loading} aiInfo={aiInfo} size="sm"
+            idleText={article.content_md ? "重写" : "写作"} loadingText="写作中..."
+            icon={article.content_md ? "refresh" : "sparkles"} />
         </div>
         {error && <div className="mb-2 text-sm text-rose-600 flex items-center gap-1"><AlertCircle size={14} />{error}</div>}
         <textarea value={article.content_md}
@@ -488,11 +508,9 @@ function Step4Content({ article, saveNow, queueSave }: {
           <input value={rewriteInstruction} onChange={(e) => setRewriteInstruction(e.target.value)}
             placeholder="改写指令：如「更口语化」「压缩到一半」「加入数据感」"
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400 mb-2" />
-          <button onClick={runRewrite} disabled={rewriting || !rewriteText || !rewriteInstruction}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-xs rounded-lg hover:bg-violet-700 disabled:opacity-50">
-            {rewriting ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
-            {rewriting ? "改写中..." : "AI 改写"}
-          </button>
+          <AIButton onClick={runRewrite} loading={rewriting} aiInfo={aiInfo} size="sm"
+            disabled={!rewriteText || !rewriteInstruction}
+            idleText="改写" loadingText="改写中..." icon="wand" />
           {rewriteResult && (
             <div className="mt-3 p-3 bg-violet-50 rounded-lg text-sm text-gray-800 whitespace-pre-wrap">
               {rewriteResult}
@@ -507,8 +525,9 @@ function Step4Content({ article, saveNow, queueSave }: {
 }
 
 // ============ Step 6: 标题摘要 ============
-function Step6Titles({ article, saveNow, queueSave }: {
-  article: Article; saveNow: (p: Partial<Article>) => Promise<void>; queueSave: (p: Partial<Article>) => void;
+function Step6Titles({ article, aiInfo, saveNow, queueSave }: {
+  article: Article; aiInfo: AIModelInfo | null;
+  saveNow: (p: Partial<Article>) => Promise<void>; queueSave: (p: Partial<Article>) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -533,11 +552,8 @@ function Step6Titles({ article, saveNow, queueSave }: {
           <h2 className="font-semibold text-gray-900 flex items-center gap-2">
             <Type size={18} className="text-violet-500" />第 6 步 · 标题 & 摘要
           </h2>
-          <button onClick={runAI} disabled={loading}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-xs rounded-lg hover:bg-violet-700 disabled:opacity-50">
-            {loading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-            {loading ? "生成中..." : "AI 生成"}
-          </button>
+          <AIButton onClick={runAI} loading={loading} aiInfo={aiInfo} size="sm"
+            idleText="生成标题+摘要" loadingText="生成中..." icon="sparkles" />
         </div>
         {error && <div className="mb-2 text-sm text-rose-600 flex items-center gap-1"><AlertCircle size={14} />{error}</div>}
 
@@ -595,6 +611,52 @@ function StepPlaceholder({ phase, step }: { phase: number; step: number }) {
       <div className="inline-flex items-center gap-2 px-4 py-2 bg-violet-50 text-violet-700 rounded-lg text-sm">
         <Sparkles size={14} />此步骤将在 P{phase} 阶段实装
       </div>
+    </div>
+  );
+}
+
+// ============ 统一 AI 按钮：明确显示当前模型（Qwen / Claude / ...） ============
+function AIButton({
+  onClick, loading, aiInfo, idleText, loadingText,
+  icon = "sparkles", size = "md", disabled = false,
+}: {
+  onClick: () => void;
+  loading: boolean;
+  aiInfo: AIModelInfo | null;
+  idleText: string;
+  loadingText: string;
+  icon?: "sparkles" | "refresh" | "wand";
+  size?: "sm" | "md";
+  disabled?: boolean;
+}) {
+  const IconCmp = icon === "refresh" ? RefreshCw : icon === "wand" ? Wand2 : Sparkles;
+  const provider = providerLabel(aiInfo?.provider);
+  const modelName = aiInfo?.model;
+  const isSm = size === "sm";
+  return (
+    <div className={isSm ? "inline-flex flex-col items-start" : "mt-3 inline-flex flex-col items-start"}>
+      <button onClick={onClick} disabled={loading || disabled}
+        className={
+          (isSm
+            ? "inline-flex items-center gap-1.5 px-3 py-1.5 text-xs"
+            : "inline-flex items-center gap-2 px-4 py-2 text-sm") +
+          " bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50"
+        }>
+        {loading ? <Loader2 size={isSm ? 12 : 14} className="animate-spin" /> : <IconCmp size={isSm ? 12 : 14} />}
+        <span>{provider}</span>
+        <span className="opacity-80">·</span>
+        <span>{loading ? loadingText : idleText}</span>
+      </button>
+      {modelName && (
+        <span className={(isSm ? "text-[10px]" : "text-[11px]") + " text-gray-400 mt-1"}>
+          当前模型：{modelName}
+        </span>
+      )}
+      {!aiInfo?.provider && (
+        <span className={(isSm ? "text-[10px]" : "text-[11px]") + " text-amber-600 mt-1"}>
+          ⚠ 未配置 AI 模型，请去系统设置添加
+        </span>
+      )}
     </div>
   );
 }
