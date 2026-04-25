@@ -114,6 +114,37 @@ ${content.slice(0, 3000)}
   };
 }
 
+// ============ Step 5: 配图提示词（4 张：封面 + 3 张正文插图） ============
+export function buildImagesPrompt(topic: string, content: string) {
+  const brief = content.slice(0, 1500);
+  return {
+    system: `${BRAND_BACKGROUND}\n\n你是公众号美术指导，擅长把文章内容转译为通义万相 AI 绘画的提示词。`,
+    user: `文章选题：${topic}
+
+文章正文节选：
+${brief}
+
+请生成 4 组通义万相图片提示词。整体视觉风格：明亮、温暖、有质感，适合音乐 / 钢琴 / 城市生活的氛围；不要写实人脸特写，避免版权风险。
+
+各组要求：
+- cover：封面图，比例 16:9，作为公众号文章首图，要有强视觉冲击和主题感
+- body_1 / body_2 / body_3：正文插图，比例 1:1（方形），分别对应正文中的 3 个核心场景
+
+严格以 JSON 数组返回，不要任何额外文字：
+[
+  {
+    "position": "cover",
+    "aspect": "16:9",
+    "prompt_zh": "中文提示词，描述画面元素+风格+色调+氛围（80-150字）",
+    "prompt_en": "English prompt, same content"
+  },
+  { "position": "body_1", "aspect": "1:1", "prompt_zh": "...", "prompt_en": "..." },
+  { "position": "body_2", "aspect": "1:1", "prompt_zh": "...", "prompt_en": "..." },
+  { "position": "body_3", "aspect": "1:1", "prompt_zh": "...", "prompt_en": "..." }
+]`,
+  };
+}
+
 // ============ Step 6 辅助: 智能改写 ============
 export function buildRewritePrompt(originalText: string, instruction: string) {
   return {

@@ -202,7 +202,7 @@ export default function ArticleEditorPage() {
         {step === 2 && <Step2Confirm article={article} queueSave={queueSave} />}
         {step === 3 && <Step3Outline article={article} aiInfo={aiInfo} saveNow={saveNow} queueSave={queueSave} />}
         {step === 4 && <Step4Content article={article} aiInfo={aiInfo} saveNow={saveNow} queueSave={queueSave} />}
-        {step === 5 && <StepPlaceholder phase={2} step={5} />}
+        {step === 5 && <Step5Images article={article} aiInfo={aiInfo} saveNow={saveNow} />}
         {step === 6 && <Step6Titles article={article} aiInfo={aiInfo} saveNow={saveNow} queueSave={queueSave} />}
         {step === 7 && <StepPlaceholder phase={3} step={7} />}
         {step === 8 && <StepPlaceholder phase={4} step={8} />}
@@ -593,6 +593,206 @@ function Step6Titles({ article, aiInfo, saveNow, queueSave }: {
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400" />
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ Step 5: 配图生成（通义万相） ============
+interface ArticleImage {
+  id: string;
+  position: string;
+  prompt_zh: string;
+  aspect: string;
+  image_url: string;
+  status: "pending" | "generating" | "done" | "failed";
+  error: string;
+}
+
+function Step5Images({ article, aiInfo, saveNow }: {
+  article: Article; aiInfo: AIModelInfo | null;
+  saveNow: (p: Partial<Article>) => Promise<void>;
+}) {
+  const [images, setImages] = useState<ArticleImage[]>([]);
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState("");
+  const [polling, setPolling] = useState(false);
+
+  // 初次加载已有图
+  useEffect(() => {
+    (async () => {
+      const r = await fetch(`/api/articles/${article.id}/ai/images/check`, { method: "POST" });
+      const j = await r.json();
+      if (Array.isArray(j.images)) setImages(j.images);
+    })();
+  }, [article.id]);
+
+  // 自动轮询：只要有 generating，3s 一次
+  useEffect(() => {
+    const hasGenerating = images.some((x) => x.status === "generating");
+    if (!hasGenerating) { setPolling(false); return; }
+    setPolling(true);
+    const t = setTimeout(async () => {
+      const r = await fetch(`/api/articles/${article.id}/ai/images/check`, { method: "POST" });
+      const j = await r.json();
+      if (Array.isArray(j.images)) setImages(j.images);
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [images, article.id]);
+
+  async function startAll() {
+    setStarting(true); setError("");
+    const r = await fetch(`/api/articles/${article.id}/ai/images/start`, { method: "POST" });
+    const j = await r.json();
+    setStarting(false);
+    if (!r.ok) { setError(j.error || "启动失败"); return; }
+    setImages(j.images || []);
+  }
+
+  async function regenerate(img: ArticleImage, newPrompt?: string) {
+    const r = await fetch(`/api/articles/${article.id}/ai/images/${img.id}/regenerate`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt_zh: newPrompt ?? img.prompt_zh }),
+    });
+    const j = await r.json();
+    if (!r.ok) { alert(j.error || "重新生成失败"); return; }
+    setImages((prev) => prev.map((x) => x.id === img.id ? { ...x, status: "generating", image_url: "", error: "" } : x));
+  }
+
+  async function setAsCover(img: ArticleImage) {
+    const r = await fetch(`/api/articles/${article.id}/ai/images/${img.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ set_as_cover: true }),
+    });
+    const j = await r.json();
+    if (!r.ok) { alert(j.error || "设置失败"); return; }
+    await saveNow({ cover_image_url: img.image_url });
+  }
+
+  async function updatePrompt(img: ArticleImage, prompt: string) {
+    setImages((prev) => prev.map((x) => x.id === img.id ? { ...x, prompt_zh: prompt } : x));
+    await fetch(`/api/articles/${article.id}/ai/images/${img.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt_zh: prompt }),
+    });
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex items-start justify-between gap-4 mb-3">
+          <div>
+            <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+              <ImageIcon size={18} className="text-fuchsia-500" />第 5 步 · 配图生成
+            </h2>
+            <p className="text-sm text-gray-500 mt-1">通义万相生成 1 封面 + 3 插图。可逐张编辑提示词、重新生成、选定封面。</p>
+          </div>
+          <AIButton onClick={startAll} loading={starting} aiInfo={aiInfo}
+            idleText={images.length > 0 ? "全部重新生成" : "生成 4 张配图"}
+            loadingText="提交任务中..." icon={images.length > 0 ? "refresh" : "sparkles"} />
+        </div>
+        {error && <div className="text-sm text-rose-600 flex items-center gap-1"><AlertCircle size={14} />{error}</div>}
+        {polling && (
+          <div className="text-xs text-violet-600 flex items-center gap-1 mt-2">
+            <Loader2 size={12} className="animate-spin" />
+            正在等待生成结果...（约 10-30 秒/张）
+          </div>
+        )}
+      </div>
+
+      {images.length > 0 && (
+        <div className="grid md:grid-cols-2 gap-4">
+          {images.map((img) => (
+            <ImageCard
+              key={img.id}
+              img={img}
+              isCover={article.cover_image_url === img.image_url && !!img.image_url}
+              onPromptChange={(p) => updatePrompt(img, p)}
+              onRegenerate={() => regenerate(img)}
+              onSetAsCover={() => setAsCover(img)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ImageCard({ img, isCover, onPromptChange, onRegenerate, onSetAsCover }: {
+  img: ArticleImage; isCover: boolean;
+  onPromptChange: (p: string) => void;
+  onRegenerate: () => void;
+  onSetAsCover: () => void;
+}) {
+  const positionLabel: Record<string, string> = {
+    cover: "封面图（16:9）",
+    body_1: "插图 1（1:1）",
+    body_2: "插图 2（1:1）",
+    body_3: "插图 3（1:1）",
+  };
+  return (
+    <div className={"bg-white rounded-xl border-2 p-4 " + (isCover ? "border-violet-500" : "border-gray-200")}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-sm font-semibold text-gray-900">
+          {positionLabel[img.position] || img.position}
+          {isCover && <span className="ml-2 text-[10px] px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full">已选为封面</span>}
+        </div>
+        <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{img.aspect}</span>
+      </div>
+
+      {/* 图片预览区 */}
+      <div className={"relative w-full bg-gradient-to-br from-violet-50 to-fuchsia-50 rounded-lg overflow-hidden mb-3 " +
+        (img.aspect === "16:9" ? "aspect-video" : "aspect-square")}>
+        {img.status === "generating" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-violet-600 gap-2">
+            <Loader2 size={28} className="animate-spin" />
+            <span className="text-xs">通义万相生成中...</span>
+          </div>
+        )}
+        {img.status === "failed" && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-rose-500 gap-2 px-4 text-center">
+            <AlertCircle size={28} />
+            <span className="text-xs">{img.error || "生成失败"}</span>
+          </div>
+        )}
+        {img.status === "done" && img.image_url && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={img.image_url} alt={img.position} className="w-full h-full object-cover" />
+        )}
+        {(img.status === "pending" || (!img.status && !img.image_url)) && (
+          <div className="absolute inset-0 flex items-center justify-center text-gray-300">
+            <ImageIcon size={36} />
+          </div>
+        )}
+      </div>
+
+      {/* 提示词编辑 */}
+      <textarea
+        value={img.prompt_zh}
+        onChange={(e) => onPromptChange(e.target.value)}
+        placeholder="提示词"
+        className="w-full px-2 py-1.5 text-xs border border-gray-200 rounded resize-none focus:outline-none focus:border-violet-400 mb-2"
+        rows={3}
+      />
+
+      {/* 操作 */}
+      <div className="flex items-center gap-2">
+        <button onClick={onRegenerate} disabled={img.status === "generating"}
+          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-50">
+          <RefreshCw size={11} />重新生成
+        </button>
+        {img.status === "done" && img.image_url && !isCover && (
+          <button onClick={onSetAsCover}
+            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-violet-600 text-white rounded-md hover:bg-violet-700">
+            <Check size={11} />设为封面
+          </button>
+        )}
+        {img.status === "done" && img.image_url && (
+          <a href={img.image_url} target="_blank" rel="noreferrer"
+            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs border border-gray-200 rounded-md hover:bg-gray-50 text-gray-600 ml-auto">
+            原图
+          </a>
+        )}
       </div>
     </div>
   );
