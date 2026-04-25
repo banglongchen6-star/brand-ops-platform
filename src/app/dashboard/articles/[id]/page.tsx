@@ -1,0 +1,620 @@
+"use client";
+
+// 文章详情/编辑页 —— 8步AI工作流主体
+// 路径: /dashboard/articles/[id]
+// P1 实装步骤: ① 话题筛选 ② 选题确认 ③ AI大纲 ④ 正文生成 ⑥ 标题摘要 + 智能改写
+// P2/P3/P4 占位步骤: ⑤ 配图  ⑦ 预览  ⑧ 发布
+
+import { useEffect, useRef, useState, useCallback } from "react";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
+import {
+  ArrowLeft, ChevronRight, Sparkles, Lightbulb, FileText,
+  Image as ImageIcon, Type, Smartphone, Send, Check, Loader2,
+  RefreshCw, Wand2, AlertCircle, Save,
+} from "lucide-react";
+
+// ========= 类型 =========
+type Status = "draft" | "ai_writing" | "ready" | "scheduled" | "published" | "failed";
+
+interface Article {
+  id: string;
+  status: Status;
+  current_step: number;
+  ai_topic_input: string;
+  source_trend_id: string | null;
+  source_topic: string;
+  source_angle: string;
+  ai_outline: OutlineJson | null;
+  content_md: string;
+  content_html: string;
+  title: string;
+  ai_title_options: TitleOption[] | null;
+  digest: string;
+  author: string;
+  cover_image_url: string;
+  word_count: number;
+  reading_time_min: number;
+  scheduled_at: string | null;
+  published_at: string | null;
+  updated_at: string;
+}
+
+interface OutlineSection { heading: string; keypoint: string; examples: string[] }
+interface OutlineJson { intro: string; sections: OutlineSection[]; conclusion: string }
+interface TopicCandidate { trend_id: string; topic: string; reason: string; angle: string }
+interface TitleOption { title: string; style: string; emoji_used: boolean }
+
+const STEPS = [
+  { id: 1, label: "话题筛选", icon: Lightbulb,  color: "from-amber-400 to-orange-400" },
+  { id: 2, label: "选题确认", icon: Check,      color: "from-orange-400 to-rose-400" },
+  { id: 3, label: "AI大纲",   icon: FileText,   color: "from-rose-400 to-pink-400" },
+  { id: 4, label: "正文生成", icon: Sparkles,   color: "from-pink-400 to-fuchsia-400" },
+  { id: 5, label: "配图生成", icon: ImageIcon,  color: "from-fuchsia-400 to-violet-400" },
+  { id: 6, label: "标题摘要", icon: Type,       color: "from-violet-400 to-indigo-400" },
+  { id: 7, label: "微信预览", icon: Smartphone, color: "from-indigo-400 to-blue-400" },
+  { id: 8, label: "发布",     icon: Send,       color: "from-blue-400 to-cyan-400" },
+];
+
+export default function ArticleEditorPage() {
+  const router = useRouter();
+  const { id } = useParams<{ id: string }>();
+  const [article, setArticle] = useState<Article | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const saveTimer = useRef<NodeJS.Timeout | null>(null);
+
+  // 加载
+  useEffect(() => {
+    (async () => {
+      const r = await fetch(`/api/articles/${id}`);
+      const j = await r.json();
+      if (j.article) setArticle(j.article as Article);
+      setLoading(false);
+    })();
+  }, [id]);
+
+  // 防抖保存（字段类编辑用）
+  const queueSave = useCallback((patch: Partial<Article>) => {
+    setArticle((a) => (a ? { ...a, ...patch } : a));
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      setSaving(true);
+      await fetch(`/api/articles/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      setSaving(false);
+    }, 600);
+  }, [id]);
+
+  // 立即保存（步骤切换、状态变化用）
+  const saveNow = useCallback(async (patch: Partial<Article>) => {
+    setArticle((a) => (a ? { ...a, ...patch } : a));
+    setSaving(true);
+    await fetch(`/api/articles/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    setSaving(false);
+  }, [id]);
+
+  if (loading) {
+    return <div className="flex items-center justify-center min-h-[60vh] text-gray-500">
+      <Loader2 className="animate-spin mr-2" size={18} />加载中...
+    </div>;
+  }
+  if (!article) {
+    return <div className="p-8 text-center text-gray-500">文章不存在或已删除</div>;
+  }
+
+  const step = article.current_step || 1;
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* 顶部条 */}
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center gap-3">
+          <Link href="/dashboard/articles" className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500">
+            <ArrowLeft size={18} />
+          </Link>
+          <h1 className="font-semibold text-gray-900 truncate max-w-md">
+            {article.title || article.source_topic || "未命名草稿"}
+          </h1>
+          <span className="text-xs text-gray-400 shrink-0">第 {step}/8 步</span>
+          <div className="flex-1" />
+          {saving ? (
+            <span className="text-xs text-gray-400 flex items-center gap-1">
+              <Loader2 size={11} className="animate-spin" />保存中...
+            </span>
+          ) : (
+            <span className="text-xs text-gray-400 flex items-center gap-1">
+              <Save size={11} />已自动保存
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 步进条 */}
+      <div className="bg-white border-b border-gray-100">
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="flex items-center gap-1">
+            {STEPS.map((s, idx) => {
+              const isCurrent = s.id === step;
+              const isDone = s.id < step;
+              const Icon = s.icon;
+              return (
+                <div key={s.id} className="flex items-center flex-1 last:flex-none">
+                  <button onClick={() => saveNow({ current_step: s.id })} className="flex flex-col items-center gap-1 group">
+                    <div className={
+                      "w-9 h-9 rounded-full flex items-center justify-center transition-all " +
+                      (isCurrent ? `bg-gradient-to-br ${s.color} text-white shadow-md scale-110`
+                        : isDone ? "bg-violet-100 text-violet-600"
+                        : "bg-gray-100 text-gray-400 group-hover:bg-gray-200")
+                    }>
+                      {isDone ? <Check size={16} /> : <Icon size={16} />}
+                    </div>
+                    <span className={"text-[11px] font-medium whitespace-nowrap " +
+                      (isCurrent ? "text-violet-600" : isDone ? "text-violet-500" : "text-gray-400")}>
+                      {s.label}
+                    </span>
+                  </button>
+                  {idx < STEPS.length - 1 && (
+                    <div className={"flex-1 h-0.5 mx-1 " + (isDone ? "bg-violet-300" : "bg-gray-200")} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* 主内容 */}
+      <div className="max-w-7xl mx-auto px-6 py-6 pb-20">
+        {step === 1 && <Step1Topics article={article} saveNow={saveNow} queueSave={queueSave} />}
+        {step === 2 && <Step2Confirm article={article} queueSave={queueSave} />}
+        {step === 3 && <Step3Outline article={article} saveNow={saveNow} queueSave={queueSave} />}
+        {step === 4 && <Step4Content article={article} saveNow={saveNow} queueSave={queueSave} />}
+        {step === 5 && <StepPlaceholder phase={2} step={5} />}
+        {step === 6 && <Step6Titles article={article} saveNow={saveNow} queueSave={queueSave} />}
+        {step === 7 && <StepPlaceholder phase={3} step={7} />}
+        {step === 8 && <StepPlaceholder phase={4} step={8} />}
+      </div>
+
+      {/* 底部条 */}
+      <div className="fixed bottom-0 left-56 right-0 bg-white border-t border-gray-200 px-6 py-3 flex items-center justify-between z-10">
+        <button
+          onClick={() => saveNow({ current_step: Math.max(1, step - 1) })}
+          disabled={step === 1}
+          className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">
+          上一步
+        </button>
+        <div className="text-xs text-gray-400">
+          {article.word_count > 0 && `${article.word_count} 字 · 阅读约 ${article.reading_time_min} 分钟`}
+        </div>
+        <button
+          onClick={() => saveNow({ current_step: Math.min(8, step + 1) })}
+          disabled={step === 8}
+          className="flex items-center gap-1 px-4 py-2 text-sm bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-40">
+          {step === 8 ? "完成" : "下一步"}<ChevronRight size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============ Step 1: 话题筛选 ============
+function Step1Topics({ article, saveNow, queueSave }: {
+  article: Article; saveNow: (p: Partial<Article>) => Promise<void>; queueSave: (p: Partial<Article>) => void;
+}) {
+  const [candidates, setCandidates] = useState<TopicCandidate[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [hint, setHint] = useState(article.ai_topic_input || "");
+
+  async function runAI() {
+    setLoading(true); setError("");
+    const r = await fetch(`/api/articles/${article.id}/ai/topics`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hint }),
+    });
+    const j = await r.json();
+    setLoading(false);
+    if (!r.ok) { setError(j.error || "AI 调用失败"); return; }
+    setCandidates(j.candidates || []);
+  }
+
+  async function pickTopic(c: TopicCandidate) {
+    await saveNow({
+      source_trend_id: c.trend_id,
+      source_topic: c.topic,
+      source_angle: c.angle,
+      ai_topic_input: hint,
+      current_step: 2,
+    });
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-1">
+          <Lightbulb size={18} className="text-amber-500" />
+          第 1 步 · 话题筛选
+        </h2>
+        <p className="text-sm text-gray-500 mb-4">从今日各平台热榜里，让 AI 挑选 5 个适合音乐密码品牌的选题。</p>
+        <textarea
+          value={hint} onChange={(e) => setHint(e.target.value)}
+          placeholder="（可选）输入特别关注的方向，如：最近想多写一些 AI 与音乐结合的话题"
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:border-violet-400" rows={2}
+        />
+        <button onClick={runAI} disabled={loading}
+          className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-violet-600 text-white text-sm rounded-lg hover:bg-violet-700 disabled:opacity-50">
+          {loading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+          {loading ? "AI 思考中..." : "AI 筛选选题"}
+        </button>
+        {error && <div className="mt-3 text-sm text-rose-600 flex items-center gap-1"><AlertCircle size={14} />{error}</div>}
+      </div>
+
+      {candidates.length > 0 && (
+        <div className="space-y-2">
+          {candidates.map((c, i) => (
+            <button key={i} onClick={() => pickTopic(c)}
+              className="w-full text-left bg-white rounded-xl border border-gray-200 p-4 hover:border-violet-400 hover:shadow-sm transition-all">
+              <div className="flex items-start justify-between gap-3 mb-1">
+                <h3 className="font-semibold text-gray-900">{c.topic}</h3>
+                <span className="text-[11px] px-2 py-0.5 bg-amber-50 text-amber-700 rounded-full shrink-0">推荐 #{i + 1}</span>
+              </div>
+              <p className="text-sm text-gray-600 mb-1"><span className="text-gray-400">理由：</span>{c.reason}</p>
+              <p className="text-sm text-gray-600"><span className="text-gray-400">角度：</span>{c.angle}</p>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* 手动跳过 */}
+      <div className="text-center pt-2">
+        <button onClick={() => queueSave({ ai_topic_input: hint, current_step: 2 })}
+          className="text-sm text-gray-500 hover:text-violet-600 underline">
+          跳过 AI 筛选，手动输入选题
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ============ Step 2: 选题确认 ============
+function Step2Confirm({ article, queueSave }: {
+  article: Article; queueSave: (p: Partial<Article>) => void;
+}) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+      <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+        <Check size={18} className="text-orange-500" />第 2 步 · 选题确认
+      </h2>
+      <p className="text-sm text-gray-500">确认/修改选题方向，再补充些背景信息让 AI 写得更准。</p>
+
+      <div>
+        <label className="block text-xs text-gray-600 mb-1">选题</label>
+        <input type="text" value={article.source_topic}
+          onChange={(e) => queueSave({ source_topic: e.target.value })}
+          placeholder="例：成年人为什么越来越多开始学钢琴？"
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400" />
+      </div>
+
+      <div>
+        <label className="block text-xs text-gray-600 mb-1">切入角度</label>
+        <textarea value={article.source_angle}
+          onChange={(e) => queueSave({ source_angle: e.target.value })}
+          placeholder="例：从某个社会现象切入，落到成年人学钢琴的具体痛点"
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:border-violet-400" rows={2} />
+      </div>
+
+      <div>
+        <label className="block text-xs text-gray-600 mb-1">补充信息（可选）</label>
+        <textarea value={article.ai_topic_input}
+          onChange={(e) => queueSave({ ai_topic_input: e.target.value })}
+          placeholder="补充上下文：比如最近的活动、想强调的卖点、要规避的话题..."
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:border-violet-400" rows={3} />
+      </div>
+    </div>
+  );
+}
+
+// ============ Step 3: AI大纲 ============
+function Step3Outline({ article, saveNow, queueSave }: {
+  article: Article; saveNow: (p: Partial<Article>) => Promise<void>; queueSave: (p: Partial<Article>) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const outline = article.ai_outline;
+
+  async function runAI() {
+    if (!article.source_topic) { setError("请先在上一步填写选题"); return; }
+    setLoading(true); setError("");
+    const r = await fetch(`/api/articles/${article.id}/ai/outline`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ topic: article.source_topic, angle: article.source_angle, hint: article.ai_topic_input }),
+    });
+    const j = await r.json();
+    setLoading(false);
+    if (!r.ok) { setError(j.error || "AI 调用失败"); return; }
+    await saveNow({ ai_outline: j.outline });
+  }
+
+  function updateOutline(next: OutlineJson) { queueSave({ ai_outline: next }); }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <h2 className="font-semibold text-gray-900 flex items-center gap-2 mb-1">
+          <FileText size={18} className="text-rose-500" />第 3 步 · AI 大纲
+        </h2>
+        <p className="text-sm text-gray-500 mb-4">基于选题，AI 生成结构化大纲。可以直接编辑。</p>
+        <button onClick={runAI} disabled={loading}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 text-white text-sm rounded-lg hover:bg-violet-700 disabled:opacity-50">
+          {loading ? <Loader2 size={14} className="animate-spin" /> : outline ? <RefreshCw size={14} /> : <Sparkles size={14} />}
+          {loading ? "生成中..." : outline ? "重新生成大纲" : "生成大纲"}
+        </button>
+        {error && <div className="mt-3 text-sm text-rose-600 flex items-center gap-1"><AlertCircle size={14} />{error}</div>}
+      </div>
+
+      {outline && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">引言思路</label>
+            <textarea value={outline.intro}
+              onChange={(e) => updateOutline({ ...outline, intro: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:border-violet-400" rows={2} />
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-600 mb-2">正文段落（{outline.sections.length}）</label>
+            <div className="space-y-3">
+              {outline.sections.map((s, i) => (
+                <div key={i} className="border border-gray-200 rounded-lg p-3 space-y-2">
+                  <input value={s.heading}
+                    onChange={(e) => {
+                      const next = [...outline.sections]; next[i] = { ...s, heading: e.target.value };
+                      updateOutline({ ...outline, sections: next });
+                    }}
+                    placeholder="小标题" className="w-full px-2 py-1 text-sm font-semibold border-b border-transparent hover:border-gray-200 focus:outline-none focus:border-violet-400" />
+                  <textarea value={s.keypoint}
+                    onChange={(e) => {
+                      const next = [...outline.sections]; next[i] = { ...s, keypoint: e.target.value };
+                      updateOutline({ ...outline, sections: next });
+                    }}
+                    placeholder="核心观点"
+                    className="w-full px-2 py-1 text-sm border border-gray-100 rounded resize-none focus:outline-none focus:border-violet-400" rows={2} />
+                  <textarea value={(s.examples || []).join("\n")}
+                    onChange={(e) => {
+                      const next = [...outline.sections]; next[i] = { ...s, examples: e.target.value.split("\n").filter(Boolean) };
+                      updateOutline({ ...outline, sections: next });
+                    }}
+                    placeholder="举例方向（每行一个）"
+                    className="w-full px-2 py-1 text-xs text-gray-600 border border-gray-100 rounded resize-none focus:outline-none focus:border-violet-400" rows={2} />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">结尾行动召唤</label>
+            <textarea value={outline.conclusion}
+              onChange={(e) => updateOutline({ ...outline, conclusion: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:border-violet-400" rows={2} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============ Step 4: 正文生成 ============
+function Step4Content({ article, saveNow, queueSave }: {
+  article: Article; saveNow: (p: Partial<Article>) => Promise<void>; queueSave: (p: Partial<Article>) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [rewriting, setRewriting] = useState(false);
+  const [rewriteText, setRewriteText] = useState("");
+  const [rewriteInstruction, setRewriteInstruction] = useState("");
+  const [rewriteResult, setRewriteResult] = useState("");
+
+  async function runAI() {
+    if (!article.ai_outline) { setError("请先回到第 3 步生成大纲"); return; }
+    setLoading(true); setError("");
+    const r = await fetch(`/api/articles/${article.id}/ai/content`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ outline: article.ai_outline, topic: article.source_topic }),
+    });
+    const j = await r.json();
+    setLoading(false);
+    if (!r.ok) { setError(j.error || "AI 调用失败"); return; }
+    await saveNow({ content_md: j.content_md, word_count: j.word_count });
+  }
+
+  async function runRewrite() {
+    if (!rewriteText || !rewriteInstruction) return;
+    setRewriting(true); setRewriteResult("");
+    const r = await fetch(`/api/articles/${article.id}/ai/rewrite`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: rewriteText, instruction: rewriteInstruction }),
+    });
+    const j = await r.json();
+    setRewriting(false);
+    if (j.rewritten) setRewriteResult(j.rewritten);
+    else alert(j.error || "改写失败");
+  }
+
+  return (
+    <div className="grid lg:grid-cols-2 gap-4">
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+            <Sparkles size={18} className="text-fuchsia-500" />第 4 步 · 正文 (Markdown)
+          </h2>
+          <button onClick={runAI} disabled={loading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-xs rounded-lg hover:bg-violet-700 disabled:opacity-50">
+            {loading ? <Loader2 size={12} className="animate-spin" /> : article.content_md ? <RefreshCw size={12} /> : <Sparkles size={12} />}
+            {loading ? "AI 写作中..." : article.content_md ? "重写" : "AI 写作"}
+          </button>
+        </div>
+        {error && <div className="mb-2 text-sm text-rose-600 flex items-center gap-1"><AlertCircle size={14} />{error}</div>}
+        <textarea value={article.content_md}
+          onChange={(e) => queueSave({ content_md: e.target.value })}
+          placeholder="AI 写好的 Markdown 正文会出现在这里，可以自由编辑..."
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono resize-none focus:outline-none focus:border-violet-400" rows={24} />
+        <div className="mt-2 text-xs text-gray-400">{article.word_count} 字 · 约 {article.reading_time_min} 分钟阅读</div>
+      </div>
+
+      {/* 右侧：预览 + 改写工具 */}
+      <div className="space-y-4">
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <h3 className="font-semibold text-gray-900 mb-3 text-sm">实时预览</h3>
+          <div className="prose prose-sm max-w-none text-gray-800 whitespace-pre-wrap leading-relaxed">
+            {renderSimpleMarkdown(article.content_md)}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <h3 className="font-semibold text-gray-900 mb-3 text-sm flex items-center gap-2">
+            <Wand2 size={14} className="text-violet-500" />智能改写
+          </h3>
+          <textarea value={rewriteText} onChange={(e) => setRewriteText(e.target.value)}
+            placeholder="粘贴一段需要改写的文字..."
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:border-violet-400 mb-2" rows={3} />
+          <input value={rewriteInstruction} onChange={(e) => setRewriteInstruction(e.target.value)}
+            placeholder="改写指令：如「更口语化」「压缩到一半」「加入数据感」"
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400 mb-2" />
+          <button onClick={runRewrite} disabled={rewriting || !rewriteText || !rewriteInstruction}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-xs rounded-lg hover:bg-violet-700 disabled:opacity-50">
+            {rewriting ? <Loader2 size={12} className="animate-spin" /> : <Wand2 size={12} />}
+            {rewriting ? "改写中..." : "AI 改写"}
+          </button>
+          {rewriteResult && (
+            <div className="mt-3 p-3 bg-violet-50 rounded-lg text-sm text-gray-800 whitespace-pre-wrap">
+              {rewriteResult}
+              <button onClick={() => navigator.clipboard.writeText(rewriteResult)}
+                className="block mt-2 text-xs text-violet-600 hover:underline">复制</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ Step 6: 标题摘要 ============
+function Step6Titles({ article, saveNow, queueSave }: {
+  article: Article; saveNow: (p: Partial<Article>) => Promise<void>; queueSave: (p: Partial<Article>) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function runAI() {
+    if (!article.content_md) { setError("请先在第 4 步生成正文"); return; }
+    setLoading(true); setError("");
+    const r = await fetch(`/api/articles/${article.id}/ai/titles`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: article.content_md, topic: article.source_topic }),
+    });
+    const j = await r.json();
+    setLoading(false);
+    if (!r.ok) { setError(j.error || "AI 调用失败"); return; }
+    await saveNow({ ai_title_options: j.options, digest: j.digest });
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+            <Type size={18} className="text-violet-500" />第 6 步 · 标题 & 摘要
+          </h2>
+          <button onClick={runAI} disabled={loading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white text-xs rounded-lg hover:bg-violet-700 disabled:opacity-50">
+            {loading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+            {loading ? "生成中..." : "AI 生成"}
+          </button>
+        </div>
+        {error && <div className="mb-2 text-sm text-rose-600 flex items-center gap-1"><AlertCircle size={14} />{error}</div>}
+
+        {(article.ai_title_options || []).length > 0 && (
+          <div className="space-y-2 mb-4">
+            <div className="text-xs text-gray-500">AI 候选标题（点击采用）：</div>
+            {(article.ai_title_options || []).map((t, i) => (
+              <button key={i} onClick={() => queueSave({ title: t.title })}
+                className={"w-full text-left p-3 rounded-lg border transition-all " +
+                  (article.title === t.title ? "border-violet-500 bg-violet-50" : "border-gray-200 hover:border-violet-300")}>
+                <div className="font-medium text-gray-900">{t.title}</div>
+                <div className="text-[11px] text-gray-400 mt-0.5">{t.style} · {t.title.length} 字</div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="space-y-3 pt-3 border-t border-gray-100">
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">最终标题</label>
+            <input value={article.title} onChange={(e) => queueSave({ title: e.target.value })}
+              placeholder="点击上方候选采用，或手动输入"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-semibold focus:outline-none focus:border-violet-400" />
+            <div className="text-[11px] text-gray-400 mt-1">{article.title.length} 字</div>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">摘要（公众号推送预览）</label>
+            <textarea value={article.digest} onChange={(e) => queueSave({ digest: e.target.value })}
+              placeholder="约 100-120 字"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:border-violet-400" rows={3} />
+            <div className="text-[11px] text-gray-400 mt-1">{article.digest.length} / 120 字</div>
+          </div>
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">作者署名</label>
+            <input value={article.author} onChange={(e) => queueSave({ author: e.target.value })}
+              placeholder="例：音乐密码编辑部"
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============ 占位步骤 ============
+function StepPlaceholder({ phase, step }: { phase: number; step: number }) {
+  const meta = STEPS[step - 1];
+  const Icon = meta.icon;
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200 p-12 text-center">
+      <div className={`inline-flex w-16 h-16 rounded-2xl bg-gradient-to-br ${meta.color} text-white items-center justify-center mb-4 shadow-lg`}>
+        <Icon size={28} />
+      </div>
+      <h2 className="text-xl font-bold text-gray-900 mb-2">第 {step} 步 · {meta.label}</h2>
+      <div className="inline-flex items-center gap-2 px-4 py-2 bg-violet-50 text-violet-700 rounded-lg text-sm">
+        <Sparkles size={14} />此步骤将在 P{phase} 阶段实装
+      </div>
+    </div>
+  );
+}
+
+// ============ 极简 Markdown 渲染（不引入额外依赖）============
+function renderSimpleMarkdown(md: string): React.ReactNode {
+  if (!md) return <span className="text-gray-400">正文为空</span>;
+  return md.split(/\n\n+/).map((block, i) => {
+    if (block.startsWith("## ")) {
+      return <h3 key={i} className="text-lg font-bold mt-4 mb-2 text-gray-900">{block.slice(3)}</h3>;
+    }
+    if (block.startsWith("# ")) {
+      return <h2 key={i} className="text-xl font-bold mt-4 mb-2 text-gray-900">{block.slice(2)}</h2>;
+    }
+    const inline = block.split(/(\*\*[^*]+\*\*)/g).map((seg, j) => {
+      if (seg.startsWith("**") && seg.endsWith("**")) {
+        return <strong key={j} className="text-violet-700">{seg.slice(2, -2)}</strong>;
+      }
+      return <span key={j}>{seg}</span>;
+    });
+    return <p key={i} className="mb-3">{inline}</p>;
+  });
+}

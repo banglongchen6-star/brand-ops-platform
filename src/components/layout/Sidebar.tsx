@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import {
   LayoutDashboard, ShoppingCart, Users, FileVideo, Store,
   Headphones, BrainCircuit, CheckSquare, Swords, BarChart3,
-  Settings, LogOut, Music2,
+  Settings, LogOut, Music2, PenLine,
 } from "lucide-react";
 
 const navGroups = [
@@ -20,6 +20,7 @@ const navGroups = [
       { href: "/dashboard/sales",      label: "电商销售",   icon: ShoppingCart },
       { href: "/dashboard/kol",        label: "达人营销",   icon: Users },
       { href: "/dashboard/content",    label: "内容运营",   icon: FileVideo },
+      { href: "/dashboard/articles",   label: "文字内容",   icon: PenLine },
       { href: "/dashboard/channel",    label: "渠道分销",   icon: Store },
       { href: "/dashboard/service",    label: "客服中心",   icon: Headphones },
     ],
