@@ -11,7 +11,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft, ChevronRight, Sparkles, Lightbulb, FileText,
   Image as ImageIcon, Type, Smartphone, Send, Check, Loader2,
-  RefreshCw, Wand2, AlertCircle, Save,
+  RefreshCw, Wand2, AlertCircle, Save, Upload,
 } from "lucide-react";
 
 // ========= 类型 =========
@@ -609,6 +609,9 @@ interface ArticleImage {
   error: string;
 }
 
+const SLOT_ORDER = ["cover", "body_1", "body_2", "body_3"] as const;
+const SLOT_ASPECT: Record<string, string> = { cover: "16:9", body_1: "1:1", body_2: "1:1", body_3: "1:1" };
+
 function Step5Images({ article, aiInfo, saveNow }: {
   article: Article; aiInfo: AIModelInfo | null;
   saveNow: (p: Partial<Article>) => Promise<void>;
@@ -617,6 +620,10 @@ function Step5Images({ article, aiInfo, saveNow }: {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState("");
   const [polling, setPolling] = useState(false);
+  const [uploading, setUploading] = useState<string | null>(null); // position being uploaded
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const singleFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [singleUploadTarget, setSingleUploadTarget] = useState<string | null>(null);
 
   // 初次加载已有图
   useEffect(() => {
@@ -677,6 +684,43 @@ function Step5Images({ article, aiInfo, saveNow }: {
     });
   }
 
+  async function refreshImages() {
+    const r = await fetch(`/api/articles/${article.id}/ai/images/check`, { method: "POST" });
+    const j = await r.json();
+    if (Array.isArray(j.images)) setImages(j.images);
+  }
+
+  // 多文件上传：按 SLOT_ORDER 依次分配到 cover/body_1/2/3
+  async function handleBatchUpload(files: FileList) {
+    const count = Math.min(files.length, 4);
+    setUploading("batch"); setError("");
+    for (let i = 0; i < count; i++) {
+      const position = SLOT_ORDER[i];
+      await uploadOne(files[i], position);
+    }
+    await refreshImages();
+    setUploading(null);
+  }
+
+  // 替换单张：指定 position
+  async function handleSingleUpload(file: File, position: string) {
+    setUploading(position); setError("");
+    await uploadOne(file, position);
+    await refreshImages();
+    setUploading(null);
+  }
+
+  async function uploadOne(file: File, position: string) {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("position", position);
+    fd.append("aspect", SLOT_ASPECT[position] || "1:1");
+    const r = await fetch(`/api/articles/${article.id}/images/upload`, { method: "POST", body: fd });
+    const j = await r.json();
+    if (!r.ok) { setError(j.error || "上传失败"); return null; }
+    return j.url as string;
+  }
+
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -685,17 +729,47 @@ function Step5Images({ article, aiInfo, saveNow }: {
             <h2 className="font-semibold text-gray-900 flex items-center gap-2">
               <ImageIcon size={18} className="text-fuchsia-500" />第 5 步 · 配图生成
             </h2>
-            <p className="text-sm text-gray-500 mt-1">通义万相生成 1 封面 + 3 插图。可逐张编辑提示词、重新生成、选定封面。</p>
+            <p className="text-sm text-gray-500 mt-1">可 AI 生成或手动上传 1 封面 + 3 插图。支持 JPG/PNG/GIF/WEBP，单图 ≤ 10MB。</p>
           </div>
-          <AIButton onClick={startAll} loading={starting} aiInfo={aiInfo}
-            idleText={images.length > 0 ? "全部重新生成" : "生成 4 张配图"}
-            loadingText="提交任务中..." icon={images.length > 0 ? "refresh" : "sparkles"} />
+          <div className="flex items-center gap-2 shrink-0">
+            <AIButton onClick={startAll} loading={starting} aiInfo={aiInfo}
+              idleText={images.length > 0 ? "全部重新生成" : "AI 生成 4 张"}
+              loadingText="提交任务中..." icon={images.length > 0 ? "refresh" : "sparkles"} />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading !== null}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-violet-300 text-violet-700 rounded-lg hover:bg-violet-50 disabled:opacity-50 h-fit self-start"
+            >
+              {uploading === "batch" ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+              {uploading === "batch" ? "上传中..." : "手动上传"}
+            </button>
+          </div>
         </div>
+        {/* 隐藏文件选择器 */}
+        <input
+          ref={fileInputRef} type="file" accept="image/*" multiple className="hidden"
+          onChange={(e) => { if (e.target.files) handleBatchUpload(e.target.files); e.target.value = ""; }}
+        />
+        <input
+          ref={singleFileInputRef} type="file" accept="image/*" className="hidden"
+          onChange={(e) => {
+            if (e.target.files && e.target.files[0] && singleUploadTarget) {
+              handleSingleUpload(e.target.files[0], singleUploadTarget);
+              setSingleUploadTarget(null);
+            }
+            e.target.value = "";
+          }}
+        />
         {error && <div className="text-sm text-rose-600 flex items-center gap-1"><AlertCircle size={14} />{error}</div>}
         {polling && (
           <div className="text-xs text-violet-600 flex items-center gap-1 mt-2">
             <Loader2 size={12} className="animate-spin" />
             正在等待生成结果...（约 10-30 秒/张）
+          </div>
+        )}
+        {images.length === 0 && uploading === null && (
+          <div className="mt-4 text-sm text-gray-500 bg-gray-50 rounded-lg p-4 text-center">
+            还没有图片。点击「AI 生成 4 张」让通义万相自动生成，或点击「手动上传」一次选多张图片（按顺序分配到 封面/插图1/插图2/插图3）。
           </div>
         )}
       </div>
@@ -707,9 +781,14 @@ function Step5Images({ article, aiInfo, saveNow }: {
               key={img.id}
               img={img}
               isCover={article.cover_image_url === img.image_url && !!img.image_url}
+              uploading={uploading === img.position}
               onPromptChange={(p) => updatePrompt(img, p)}
               onRegenerate={() => regenerate(img)}
               onSetAsCover={() => setAsCover(img)}
+              onReplaceUpload={() => {
+                setSingleUploadTarget(img.position);
+                singleFileInputRef.current?.click();
+              }}
             />
           ))}
         </div>
@@ -718,11 +797,12 @@ function Step5Images({ article, aiInfo, saveNow }: {
   );
 }
 
-function ImageCard({ img, isCover, onPromptChange, onRegenerate, onSetAsCover }: {
-  img: ArticleImage; isCover: boolean;
+function ImageCard({ img, isCover, uploading, onPromptChange, onRegenerate, onSetAsCover, onReplaceUpload }: {
+  img: ArticleImage; isCover: boolean; uploading: boolean;
   onPromptChange: (p: string) => void;
   onRegenerate: () => void;
   onSetAsCover: () => void;
+  onReplaceUpload: () => void;
 }) {
   const positionLabel: Record<string, string> = {
     cover: "封面图（16:9）",
@@ -743,23 +823,33 @@ function ImageCard({ img, isCover, onPromptChange, onRegenerate, onSetAsCover }:
       {/* 图片预览区 */}
       <div className={"relative w-full bg-gradient-to-br from-violet-50 to-fuchsia-50 rounded-lg overflow-hidden mb-3 " +
         (img.aspect === "16:9" ? "aspect-video" : "aspect-square")}>
-        {img.status === "generating" && (
+        {uploading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-violet-600 gap-2 bg-white/70 z-10">
+            <Loader2 size={28} className="animate-spin" />
+            <span className="text-xs">上传中...</span>
+          </div>
+        )}
+        {img.status === "generating" && !uploading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-violet-600 gap-2">
             <Loader2 size={28} className="animate-spin" />
             <span className="text-xs">通义万相生成中...</span>
           </div>
         )}
-        {img.status === "failed" && (
+        {img.status === "failed" && !uploading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-rose-500 gap-2 px-4 text-center">
             <AlertCircle size={28} />
             <span className="text-xs">{img.error || "生成失败"}</span>
+            <button onClick={onReplaceUpload}
+              className="mt-2 inline-flex items-center gap-1 px-3 py-1 text-xs border border-violet-300 text-violet-700 rounded-md hover:bg-violet-50">
+              <Upload size={11} />改为手动上传
+            </button>
           </div>
         )}
         {img.status === "done" && img.image_url && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={img.image_url} alt={img.position} className="w-full h-full object-cover" />
         )}
-        {(img.status === "pending" || (!img.status && !img.image_url)) && (
+        {(img.status === "pending" || (!img.status && !img.image_url)) && !uploading && (
           <div className="absolute inset-0 flex items-center justify-center text-gray-300">
             <ImageIcon size={36} />
           </div>
@@ -776,10 +866,14 @@ function ImageCard({ img, isCover, onPromptChange, onRegenerate, onSetAsCover }:
       />
 
       {/* 操作 */}
-      <div className="flex items-center gap-2">
-        <button onClick={onRegenerate} disabled={img.status === "generating"}
+      <div className="flex items-center gap-2 flex-wrap">
+        <button onClick={onReplaceUpload} disabled={uploading}
+          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs border border-violet-300 text-violet-700 rounded-md hover:bg-violet-50 disabled:opacity-50">
+          <Upload size={11} />上传替换
+        </button>
+        <button onClick={onRegenerate} disabled={img.status === "generating" || uploading}
           className="inline-flex items-center gap-1 px-2.5 py-1 text-xs border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-50">
-          <RefreshCw size={11} />重新生成
+          <RefreshCw size={11} />AI 重生
         </button>
         {img.status === "done" && img.image_url && !isCover && (
           <button onClick={onSetAsCover}
