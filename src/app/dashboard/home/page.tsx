@@ -1,42 +1,40 @@
 "use client";
 
-// 工作台首页 — 个人工作笔记 + 我相关的任务（双栏）
-// 笔记：所有笔记同屏卡片视图，点编辑进入编辑态，手动保存
-// 任务：右侧 4 tab，行内勾选完成
-// AI 桥接：编辑态里的「AI 检测待办」按钮，结果右下角 toast
+// 工作台首页 — 个人工作笔记（按板块分组）+ 我相关任务
+// 板块（电商/达人/内容/渠道/客服）默认种 5 个，用户可改名/改图标/增删/排序
+// 任务区右侧 sticky
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import {
-  Plus, FileText, Loader2, X, Trash2, CheckCircle2,
-  Sparkles, ChevronLeft, ChevronRight, ListChecks,
-  BookOpen, Sun, Moon, Edit2, Save, Eye,
+  Plus, FileText, Loader2, X, Trash2, CheckCircle2, Sparkles, ListChecks,
+  Edit2, Save, Sun, Moon, ChevronDown, ChevronRight, Settings2,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 // ============ 类型 ============
+interface Category {
+  id: string;
+  label: string;
+  icon: string;
+  sort_order: number;
+}
 interface Note {
   id: string;
-  date: string;
   title: string;
   content_md: string;
-  tags: string[];
-  last_detect_len: number;
-  last_detect_at: string | null;
-  created_at: string;
+  category_id: string | null;
   updated_at: string;
+  created_at: string;
 }
 interface MyTask {
   id: string;
   title: string;
-  description: string | null;
   module: string | null;
   status: string | null;
   priority: string | null;
-  progress_percent: number | null;
   due_at: string | null;
   my_role: string[];
-  updated_at: string;
 }
 interface ActionCandidate {
   text: string;
@@ -64,82 +62,79 @@ function formatDate(s: string) {
 
 // 简易 Markdown 渲染
 function renderMd(md: string): React.ReactNode {
-  if (!md.trim()) return <span className="text-gray-300 italic">空内容</span>;
+  if (!md.trim()) return <span className="text-gray-300 italic text-xs">空内容</span>;
   return md.split(/\n+/).map((line, i) => {
     if (!line.trim()) return null;
-    if (line.startsWith("### ")) return <h4 key={i} className="text-sm font-bold text-gray-900 mt-3 mb-1">{line.slice(4)}</h4>;
-    if (line.startsWith("## ")) return <h3 key={i} className="text-base font-bold text-gray-900 mt-3 mb-1.5">{line.slice(3)}</h3>;
-    if (line.startsWith("# ")) return <h2 key={i} className="text-lg font-bold text-gray-900 mt-3 mb-2">{line.slice(2)}</h2>;
-    const checkboxMatch = line.match(/^[\s-]*\[([ xX])\]\s+(.+)$/);
-    if (checkboxMatch) {
-      const checked = checkboxMatch[1].toLowerCase() === "x";
+    if (line.startsWith("### ")) return <h4 key={i} className="text-sm font-bold text-gray-900 mt-2 mb-0.5">{line.slice(4)}</h4>;
+    if (line.startsWith("## ")) return <h3 key={i} className="text-base font-bold text-gray-900 mt-2 mb-0.5">{line.slice(3)}</h3>;
+    if (line.startsWith("# ")) return <h2 key={i} className="text-lg font-bold text-gray-900 mt-2 mb-1">{line.slice(2)}</h2>;
+    const cb = line.match(/^[\s-]*\[([ xX])\]\s+(.+)$/);
+    if (cb) {
+      const checked = cb[1].toLowerCase() === "x";
       return (
         <div key={i} className="flex items-start gap-2 my-0.5 text-sm">
           <span className={"w-4 h-4 mt-0.5 border-2 rounded shrink-0 flex items-center justify-center " +
             (checked ? "bg-green-500 border-green-500" : "border-gray-300")}>
             {checked && <span className="text-white text-[10px]">✓</span>}
           </span>
-          <span className={checked ? "text-gray-400 line-through" : "text-gray-700"}>
-            {renderInline(checkboxMatch[2])}
-          </span>
+          <span className={checked ? "text-gray-400 line-through" : "text-gray-700"}>{renderInline(cb[2])}</span>
         </div>
       );
     }
-    const bulletMatch = line.match(/^[\s]*[-*]\s+(.+)$/);
-    if (bulletMatch) {
+    const bm = line.match(/^[\s]*[-*]\s+(.+)$/);
+    if (bm) {
       return (
         <div key={i} className="flex items-start gap-2 my-0.5 text-sm text-gray-700">
           <span className="text-violet-400 mt-0.5">•</span>
-          <span>{renderInline(bulletMatch[1])}</span>
+          <span>{renderInline(bm[1])}</span>
         </div>
       );
     }
-    const numMatch = line.match(/^[\s]*\d+[\.、)]\s*(.+)$/);
-    if (numMatch) {
-      return <p key={i} className="my-0.5 text-sm text-gray-700">{renderInline(line)}</p>;
-    }
-    return <p key={i} className="my-1.5 text-sm text-gray-700 leading-relaxed">{renderInline(line)}</p>;
+    return <p key={i} className="my-0.5 text-sm text-gray-700 leading-snug">{renderInline(line)}</p>;
   });
 }
 function renderInline(s: string): React.ReactNode {
   const parts = s.split(/(\*\*[^*]+\*\*|@(?:TODO|FOLLOW|IDEA)\b|#[\u4e00-\u9fa5\w-]+)/g);
   return parts.map((p, i) => {
     if (!p) return null;
-    if (p.startsWith("**") && p.endsWith("**")) {
-      return <strong key={i} className="font-semibold text-gray-900">{p.slice(2, -2)}</strong>;
-    }
-    if (p.startsWith("@")) {
-      return <span key={i} className="inline-block px-1.5 py-0 bg-amber-100 text-amber-800 text-[11px] rounded mx-0.5 font-medium">{p}</span>;
-    }
-    if (p.startsWith("#") && !p.startsWith("# ")) {
-      return <span key={i} className="inline-block px-1.5 py-0 bg-violet-100 text-violet-700 text-[11px] rounded mx-0.5">{p}</span>;
-    }
+    if (p.startsWith("**") && p.endsWith("**")) return <strong key={i} className="font-semibold text-gray-900">{p.slice(2, -2)}</strong>;
+    if (p.startsWith("@")) return <span key={i} className="inline-block px-1.5 py-0 bg-amber-100 text-amber-800 text-[11px] rounded mx-0.5 font-medium">{p}</span>;
+    if (p.startsWith("#") && !p.startsWith("# ")) return <span key={i} className="inline-block px-1.5 py-0 bg-violet-100 text-violet-700 text-[11px] rounded mx-0.5">{p}</span>;
     return <span key={i}>{p}</span>;
   });
 }
 
 // ============ 主页面 ============
 export default function HomePage() {
-  const [date, setDate] = useState(todayStr());
+  const [categories, setCategories] = useState<Category[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [tasks, setTasks] = useState<MyTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [collapsedCats, setCollapsedCats] = useState<Set<string>>(new Set());
   const [taskTab, setTaskTab] = useState<"today" | "upcoming" | "review" | "collab">("today");
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
 
+  // AI
   const [pendingActions, setPendingActions] = useState<ActionCandidate[]>([]);
   const [showActionsPanel, setShowActionsPanel] = useState(false);
   const [showToast, setShowToast] = useState(false);
 
-  useEffect(() => { loadAll(); }, [date]);
+  useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
     setLoading(true);
-    await Promise.all([loadNotes(), loadTasks()]);
+    await Promise.all([loadCategories(), loadNotes(), loadTasks()]);
     setLoading(false);
   }
+  async function loadCategories() {
+    const r = await fetch("/api/note-categories");
+    const j = await r.json();
+    setCategories((j.categories || []) as Category[]);
+  }
   async function loadNotes() {
-    const r = await fetch(`/api/notes?date=${date}`);
+    const r = await fetch("/api/notes?limit=500");
     const j = await r.json();
     setNotes((j.notes || []) as Note[]);
   }
@@ -149,15 +144,17 @@ export default function HomePage() {
     setTasks((j.tasks || []) as MyTask[]);
   }
 
-  async function newNote() {
+  async function newNote(categoryId: string) {
     const r = await fetch("/api/notes", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date, title: "新笔记" }),
+      body: JSON.stringify({ title: "新笔记", category_id: categoryId }),
     });
     const j = await r.json();
     if (j.note) {
-      setNotes((prev) => [...prev, j.note]);
-      setEditingId(j.note.id); // 新建后直接进编辑态
+      setNotes((prev) => [j.note, ...prev]);
+      setEditingId(j.note.id);
+      // 确保该板块未折叠
+      setCollapsedCats((prev) => { const n = new Set(prev); n.delete(categoryId); return n; });
     }
   }
 
@@ -185,8 +182,6 @@ export default function HomePage() {
       setPendingActions(j.candidates);
       setShowToast(true);
       setTimeout(() => setShowToast(false), 8000);
-    } else if (j.skipped) {
-      alert("AI 没检测到可转任务的内容（" + j.skipped + "）");
     } else {
       alert("AI 没检测到可转任务的内容");
     }
@@ -206,10 +201,27 @@ export default function HomePage() {
     if (r.ok) {
       setPendingActions((prev) => prev.filter((x) => x !== c));
       await loadTasks();
-    } else {
-      alert("创建任务失败");
-    }
+    } else alert("创建任务失败");
   }
+
+  function toggleCollapse(catId: string) {
+    setCollapsedCats((prev) => {
+      const n = new Set(prev);
+      if (n.has(catId)) n.delete(catId); else n.add(catId);
+      return n;
+    });
+  }
+
+  // 笔记按板块分组
+  const notesByCategory = useMemo(() => {
+    const map = new Map<string, Note[]>();
+    for (const n of notes) {
+      const key = n.category_id || "__uncategorized__";
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(n);
+    }
+    return map;
+  }, [notes]);
 
   // 任务分类
   const today = todayStr();
@@ -222,21 +234,15 @@ export default function HomePage() {
     collab: undone.filter((t) => t.my_role.length === 1 && t.my_role[0] === "participant"),
   }), [undone, today, sevenDaysLater]);
 
-  function shiftDate(delta: number) {
-    const d = new Date(date + "T00:00:00");
-    d.setDate(d.getDate() + delta);
-    setDate(d.toISOString().slice(0, 10));
-  }
-
   const Greeting = getGreeting().icon;
+  const uncategorized = notesByCategory.get("__uncategorized__") || [];
 
   return (
     <div className="p-6 max-w-[1600px] mx-auto">
-      {/* 顶部问候 */}
+      {/* 顶部 */}
       <div className="mb-5">
         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          <Greeting size={22} className="text-amber-500" />
-          {getGreeting().label} 👋
+          <Greeting size={22} className="text-amber-500" />{getGreeting().label} 👋
         </h1>
         <p className="text-sm text-gray-500 mt-0.5">
           {formatDate(today)} · 今日 {taskGroups.today.length} 项待办 · 待我审 {taskGroups.review.length}
@@ -244,103 +250,162 @@ export default function HomePage() {
       </div>
 
       <div className="grid lg:grid-cols-[1fr_400px] gap-5">
-        {/* 左：笔记区 */}
-        <div className="space-y-4">
-          {/* 工具条 */}
-          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm px-5 py-3 flex items-center gap-3">
-            <BookOpen size={16} className="text-violet-600" />
-            <h2 className="font-semibold text-gray-900">我的工作笔记</h2>
-            <div className="flex items-center gap-1 ml-2">
-              <button onClick={() => shiftDate(-1)}
-                className="p-1 rounded hover:bg-gray-100 text-gray-500" title="前一天">
-                <ChevronLeft size={14} />
-              </button>
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)}
-                className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:border-violet-400" />
-              <button onClick={() => shiftDate(1)}
-                className="p-1 rounded hover:bg-gray-100 text-gray-500" title="后一天">
-                <ChevronRight size={14} />
-              </button>
-              {date !== todayStr() && (
-                <button onClick={() => setDate(todayStr())}
-                  className="text-[11px] px-2 py-0.5 ml-1 rounded text-violet-600 hover:bg-violet-50">
-                  回今日
-                </button>
-              )}
-            </div>
-            <span className="text-xs text-gray-400 ml-2">{notes.length} 篇</span>
-            <div className="flex-1" />
-            <button onClick={newNote}
-              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-violet-600 text-white rounded-lg hover:bg-violet-700">
-              <Plus size={12} />新建笔记
-            </button>
-          </div>
-
-          {/* 笔记卡片列表 */}
+        {/* 左：笔记板块 */}
+        <div className="space-y-3">
           {loading ? (
             <div className="flex items-center justify-center py-12 text-gray-400">
               <Loader2 className="animate-spin mr-2" size={16} />加载中...
             </div>
-          ) : notes.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-dashed border-gray-300 py-16 text-center text-sm text-gray-500">
-              <BookOpen size={32} className="mx-auto text-gray-300 mb-2" />
-              <p className="mb-3">这一天还没有笔记</p>
-              <button onClick={newNote}
-                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-violet-600 text-white rounded-lg hover:bg-violet-700">
-                <Plus size={12} />开始第一篇
-              </button>
-            </div>
           ) : (
-            <div className="space-y-3">
-              {notes.map((n) => (
-                <NoteCard
-                  key={n.id} note={n}
-                  isEditing={editingId === n.id}
-                  onStartEdit={() => setEditingId(n.id)}
+            <>
+              {categories.map((cat) => {
+                const list = notesByCategory.get(cat.id) || [];
+                const collapsed = collapsedCats.has(cat.id);
+                return (
+                  <CategorySection
+                    key={cat.id} category={cat} notes={list}
+                    collapsed={collapsed}
+                    onToggleCollapse={() => toggleCollapse(cat.id)}
+                    onAddNote={() => newNote(cat.id)}
+                    onEditCategory={() => setEditingCategory(cat)}
+                    editingNoteId={editingId}
+                    onStartEdit={(id) => setEditingId(id)}
+                    onCancelEdit={() => setEditingId(null)}
+                    onSaveNote={saveNote}
+                    onDeleteNote={deleteNote}
+                    onDetectActions={detectActions}
+                  />
+                );
+              })}
+              {/* 未分类区（仅当有未分类笔记时显示） */}
+              {uncategorized.length > 0 && (
+                <CategorySection
+                  category={{ id: "__uncategorized__", label: "未分类", icon: "📂", sort_order: 9999 }}
+                  notes={uncategorized}
+                  collapsed={collapsedCats.has("__uncategorized__")}
+                  onToggleCollapse={() => toggleCollapse("__uncategorized__")}
+                  onAddNote={() => {}}
+                  hideAddNote
+                  hideEditCategory
+                  editingNoteId={editingId}
+                  onStartEdit={(id) => setEditingId(id)}
                   onCancelEdit={() => setEditingId(null)}
-                  onSave={(title, content) => saveNote(n.id, title, content)}
-                  onDelete={() => deleteNote(n.id)}
-                  onDetect={() => detectActions(n.id)}
+                  onSaveNote={saveNote}
+                  onDeleteNote={deleteNote}
+                  onDetectActions={detectActions}
                 />
-              ))}
-            </div>
+              )}
+              {/* 添加新板块 */}
+              <button onClick={() => setShowAddCategory(true)}
+                className="w-full py-2.5 text-sm border border-dashed border-gray-300 text-gray-500 rounded-xl hover:border-violet-400 hover:text-violet-600 hover:bg-violet-50/50 transition-colors flex items-center justify-center gap-1.5">
+                <Plus size={14} />添加新板块
+              </button>
+            </>
           )}
         </div>
 
         {/* 右：任务区 */}
-        <TasksPanel
-          tasks={tasks}
-          taskGroups={taskGroups}
-          tab={taskTab} setTab={setTaskTab}
-          onChange={loadTasks}
-        />
+        <TasksPanel tasks={tasks} taskGroups={taskGroups} tab={taskTab} setTab={setTaskTab} onChange={loadTasks} />
       </div>
 
       {/* AI Toast */}
       {showToast && pendingActions.length > 0 && (
-        <button
-          onClick={() => { setShowActionsPanel(true); setShowToast(false); }}
+        <button onClick={() => { setShowActionsPanel(true); setShowToast(false); }}
           className="fixed bottom-6 right-6 z-50 inline-flex items-center gap-2 px-4 py-3 bg-violet-600 text-white rounded-xl shadow-lg hover:bg-violet-700">
           <Sparkles size={16} />
           <span className="text-sm">Qwen 检测到 {pendingActions.length} 个可能的待办</span>
           <span className="text-xs opacity-80">点击查看 →</span>
         </button>
       )}
-
-      {/* AI 转任务面板 */}
       {showActionsPanel && (
-        <ActionsPanel
-          actions={pendingActions}
-          onClose={() => setShowActionsPanel(false)}
+        <ActionsPanel actions={pendingActions} onClose={() => setShowActionsPanel(false)}
           onCreate={createTaskFromAction}
-          onDismiss={(c) => setPendingActions((prev) => prev.filter((x) => x !== c))}
+          onDismiss={(c) => setPendingActions((prev) => prev.filter((x) => x !== c))} />
+      )}
+
+      {/* 板块编辑弹窗 */}
+      {(showAddCategory || editingCategory) && (
+        <CategoryFormModal
+          category={editingCategory}
+          onClose={() => { setShowAddCategory(false); setEditingCategory(null); }}
+          onSaved={async () => { setShowAddCategory(false); setEditingCategory(null); await loadCategories(); }}
         />
       )}
     </div>
   );
 }
 
-// ============ 单个笔记卡片（视图/编辑双态） ============
+// ============ 板块区 ============
+function CategorySection({
+  category, notes, collapsed, onToggleCollapse, onAddNote, onEditCategory, hideAddNote, hideEditCategory,
+  editingNoteId, onStartEdit, onCancelEdit, onSaveNote, onDeleteNote, onDetectActions,
+}: {
+  category: Category; notes: Note[];
+  collapsed: boolean; onToggleCollapse: () => void;
+  onAddNote: () => void; onEditCategory?: () => void;
+  hideAddNote?: boolean; hideEditCategory?: boolean;
+  editingNoteId: string | null;
+  onStartEdit: (id: string) => void;
+  onCancelEdit: () => void;
+  onSaveNote: (id: string, title: string, content: string) => Promise<void>;
+  onDeleteNote: (id: string) => Promise<void>;
+  onDetectActions: (id: string) => Promise<void>;
+}) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+      {/* 板块头 */}
+      <div className="group px-4 py-2.5 border-b border-gray-100 flex items-center gap-2 bg-gray-50/40">
+        <button onClick={onToggleCollapse} className="p-0.5 text-gray-400 hover:text-gray-700">
+          {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+        </button>
+        <span className="text-base">{category.icon}</span>
+        <h2 className="font-bold text-gray-900 text-sm">{category.label}</h2>
+        <span className="text-[11px] text-gray-400">{notes.length} 条</span>
+        <div className="flex-1" />
+        {!hideEditCategory && onEditCategory && (
+          <button onClick={onEditCategory}
+            className="p-1 rounded text-gray-400 hover:text-gray-700 opacity-0 group-hover:opacity-100"
+            title="编辑板块">
+            <Settings2 size={12} />
+          </button>
+        )}
+        {!hideAddNote && (
+          <button onClick={onAddNote}
+            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] bg-violet-600 text-white rounded-md hover:bg-violet-700">
+            <Plus size={11} />添加笔记
+          </button>
+        )}
+      </div>
+
+      {/* 板块内容 */}
+      {!collapsed && (
+        <div className="p-3 space-y-2">
+          {notes.length === 0 ? (
+            <div className="text-center py-4 text-xs text-gray-400">
+              暂无笔记
+              {!hideAddNote && (
+                <button onClick={onAddNote} className="ml-2 text-violet-600 hover:underline">+ 添加</button>
+              )}
+            </div>
+          ) : (
+            notes.map((n) => (
+              <NoteCard key={n.id} note={n}
+                isEditing={editingNoteId === n.id}
+                onStartEdit={() => onStartEdit(n.id)}
+                onCancelEdit={onCancelEdit}
+                onSave={(title, content) => onSaveNote(n.id, title, content)}
+                onDelete={() => onDeleteNote(n.id)}
+                onDetect={() => onDetectActions(n.id)}
+              />
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============ 笔记卡片 ============
 function NoteCard({ note, isEditing, onStartEdit, onCancelEdit, onSave, onDelete, onDetect }: {
   note: Note;
   isEditing: boolean;
@@ -355,56 +420,42 @@ function NoteCard({ note, isEditing, onStartEdit, onCancelEdit, onSave, onDelete
   const [saving, setSaving] = useState(false);
   const [detecting, setDetecting] = useState(false);
 
-  // 进入编辑态时同步最新内容
   useEffect(() => {
-    if (isEditing) {
-      setTitle(note.title);
-      setContent(note.content_md);
-    }
+    if (isEditing) { setTitle(note.title); setContent(note.content_md); }
   }, [isEditing, note.title, note.content_md]);
 
   async function handleSave() {
-    setSaving(true);
-    await onSave(title.slice(0, 80), content);
-    setSaving(false);
+    setSaving(true); await onSave(title.slice(0, 80), content); setSaving(false);
   }
   async function handleDetect() {
-    setDetecting(true);
-    await onDetect();
-    setDetecting(false);
+    setDetecting(true); await onDetect(); setDetecting(false);
   }
 
   if (isEditing) {
     return (
-      <div className="bg-white rounded-2xl border-2 border-violet-300 shadow-md p-4">
-        <input
-          type="text" value={title}
-          onChange={(e) => setTitle(e.target.value)}
+      <div className="bg-violet-50/30 border-2 border-violet-300 rounded-lg p-3">
+        <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
           placeholder="笔记标题"
-          className="w-full text-base font-bold border-b border-gray-200 focus:border-violet-400 focus:outline-none py-1.5 mb-3"
-        />
-        <textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder={"开始记录...\n\n支持 Markdown：## 标题、- 列表、[ ] 待办、**加粗**\n关键词 @TODO @FOLLOW @IDEA 会被 AI 重点识别"}
-          className="w-full min-h-[280px] px-3 py-2 border border-gray-100 rounded-lg text-sm font-mono resize-y focus:outline-none focus:border-violet-300 leading-relaxed"
-        />
-        <div className="mt-3 flex items-center gap-2">
-          <span className="text-[11px] text-gray-400">{content.length} 字符</span>
+          className="w-full text-sm font-bold border-b border-gray-200 focus:border-violet-400 focus:outline-none py-1 mb-2 bg-transparent" />
+        <textarea value={content} onChange={(e) => setContent(e.target.value)}
+          placeholder={"开始记录...\n支持 Markdown：## 标题、- 列表、[ ] 待办、**加粗**、@TODO #标签"}
+          className="w-full min-h-[180px] px-2 py-1.5 border border-gray-200 rounded text-sm font-mono resize-y focus:outline-none focus:border-violet-300 leading-relaxed bg-white" />
+        <div className="mt-2 flex items-center gap-1.5">
+          <span className="text-[10px] text-gray-400">{content.length} 字</span>
           <div className="flex-1" />
           <button onClick={handleDetect} disabled={detecting || !content.trim()}
-            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs border border-violet-200 text-violet-700 rounded-lg hover:bg-violet-50 disabled:opacity-50">
-            {detecting ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+            className="inline-flex items-center gap-1 px-2 py-1 text-[10px] border border-violet-200 text-violet-700 rounded hover:bg-violet-50 disabled:opacity-50">
+            {detecting ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
             AI 检测待办
           </button>
           <button onClick={onCancelEdit} disabled={saving}
-            className="px-3 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50">
+            className="px-2 py-1 text-[10px] border border-gray-200 rounded text-gray-700 hover:bg-gray-50">
             取消
           </button>
           <button onClick={handleSave} disabled={saving}
-            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50">
-            {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
-            {saving ? "保存中..." : "保存"}
+            className="inline-flex items-center gap-1 px-2 py-1 text-[10px] bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50">
+            {saving ? <Loader2 size={10} className="animate-spin" /> : <Save size={10} />}
+            {saving ? "保存中" : "保存"}
           </button>
         </div>
       </div>
@@ -412,32 +463,128 @@ function NoteCard({ note, isEditing, onStartEdit, onCancelEdit, onSave, onDelete
   }
 
   return (
-    <div className="group bg-white rounded-2xl border border-gray-200 shadow-sm p-5 hover:border-violet-300 hover:shadow-md transition-all">
-      <div className="flex items-start justify-between gap-3 mb-2">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <FileText size={14} className="text-violet-500 shrink-0" />
-          <h3 className="font-bold text-gray-900 truncate">{note.title || "未命名"}</h3>
+    <div className="group bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-violet-300 hover:shadow-sm transition-all">
+      <div className="flex items-start justify-between gap-2 mb-0.5">
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          <FileText size={11} className="text-violet-500 shrink-0" />
+          <h3 className="font-bold text-gray-900 text-sm truncate">{note.title || "未命名"}</h3>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[11px] text-gray-400 whitespace-nowrap">
-            {note.content_md.length} 字符 · 更新于 {new Date(note.updated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-[10px] text-gray-400 whitespace-nowrap">
+            {new Date(note.updated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
           </span>
-          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
             <button onClick={onStartEdit}
-              className="p-1.5 rounded-md border border-gray-200 text-gray-500 hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300"
-              title="编辑">
-              <Edit2 size={12} />
+              className="p-0.5 rounded text-gray-400 hover:text-violet-700 hover:bg-violet-50" title="编辑">
+              <Edit2 size={10} />
             </button>
             <button onClick={onDelete}
-              className="p-1.5 rounded-md border border-gray-200 text-gray-500 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-300"
-              title="删除">
-              <Trash2 size={12} />
+              className="p-0.5 rounded text-gray-400 hover:text-rose-600 hover:bg-rose-50" title="删除">
+              <Trash2 size={10} />
             </button>
           </div>
         </div>
       </div>
       <div className="prose prose-sm max-w-none text-gray-700">
         {renderMd(note.content_md)}
+      </div>
+    </div>
+  );
+}
+
+// ============ 板块编辑/新增弹窗 ============
+function CategoryFormModal({ category, onClose, onSaved }: {
+  category: Category | null;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [label, setLabel] = useState(category?.label || "");
+  const [icon, setIcon] = useState(category?.icon || "📝");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const presetIcons = ["📦", "👥", "📝", "🏪", "🎧", "💼", "📊", "✨", "🚀", "💡", "🎯", "📌", "🔥", "⚡", "📞"];
+
+  async function save() {
+    if (!label.trim()) { setError("板块名不能为空"); return; }
+    setBusy(true); setError("");
+    const url = category ? `/api/note-categories/${category.id}` : "/api/note-categories";
+    const r = await fetch(url, {
+      method: category ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: label.trim(), icon }),
+    });
+    setBusy(false);
+    if (!r.ok) { const j = await r.json(); setError(j.error || "保存失败"); return; }
+    await onSaved();
+  }
+
+  async function remove() {
+    if (!category) return;
+    if (!confirm(`删除「${category.label}」板块？板块下的笔记会移到「未分类」。`)) return;
+    setBusy(true);
+    const r = await fetch(`/api/note-categories/${category.id}`, { method: "DELETE" });
+    setBusy(false);
+    if (!r.ok) { alert("删除失败"); return; }
+    await onSaved();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900">{category ? "编辑板块" : "添加板块"}</h3>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 text-gray-500"><X size={18} /></button>
+        </div>
+
+        {error && <div className="mb-3 p-2 bg-rose-50 text-rose-700 text-xs rounded">{error}</div>}
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">板块名</label>
+            <input value={label} onChange={(e) => setLabel(e.target.value)}
+              placeholder="例：电商运营 / 周会纪要 / 学习笔记..."
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400" />
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">图标</label>
+            <div className="flex items-center gap-2 mb-2">
+              <input value={icon} onChange={(e) => setIcon(e.target.value.slice(0, 4))}
+                className="w-16 px-2 py-2 border border-gray-200 rounded-lg text-base text-center focus:outline-none focus:border-violet-400" />
+              <span className="text-xs text-gray-500">可输入任意 emoji 或字符</span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {presetIcons.map((ic) => (
+                <button key={ic} onClick={() => setIcon(ic)}
+                  className={"w-8 h-8 text-base rounded border " +
+                    (icon === ic ? "border-violet-400 bg-violet-50" : "border-gray-200 hover:border-gray-300")}>
+                  {ic}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-between items-center mt-5">
+          {category ? (
+            <button onClick={remove} disabled={busy}
+              className="text-xs text-rose-600 hover:underline">
+              删除板块
+            </button>
+          ) : <span />}
+          <div className="flex gap-2">
+            <button onClick={onClose}
+              className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50">
+              取消
+            </button>
+            <button onClick={save} disabled={busy}
+              className="inline-flex items-center gap-1 px-4 py-2 text-sm bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50">
+              {busy ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              保存
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -479,28 +626,25 @@ function TasksPanel({ tasks, taskGroups, tab, setTab, onChange }: {
   }
 
   const list = taskGroups[tab];
-
   return (
     <div className="bg-white rounded-2xl border border-gray-200 shadow-sm flex flex-col self-start sticky top-4">
-      <div className="px-5 py-3 border-b border-gray-100 flex items-center gap-2">
+      <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
         <ListChecks size={16} className="text-blue-600" />
         <h2 className="font-semibold text-gray-900">我的任务</h2>
-        <span className="text-xs text-gray-400">共 {tasks.length} 项</span>
+        <span className="text-xs text-gray-400">共 {tasks.length}</span>
         <div className="flex-1" />
-        <Link href="/dashboard/tasks" className="text-xs text-violet-600 hover:underline">
-          全部 →
-        </Link>
+        <Link href="/dashboard/tasks" className="text-xs text-violet-600 hover:underline">全部 →</Link>
       </div>
 
       <div className="px-3 py-2 flex gap-1 border-b border-gray-100 overflow-x-auto">
         {[
-          { v: "today" as const,    label: "今日待办", count: taskGroups.today.length },
-          { v: "upcoming" as const, label: "即将到期", count: taskGroups.upcoming.length },
-          { v: "review" as const,   label: "待我审", count: taskGroups.review.length },
-          { v: "collab" as const,   label: "协作中", count: taskGroups.collab.length },
+          { v: "today" as const,    label: "今日",   count: taskGroups.today.length },
+          { v: "upcoming" as const, label: "即将",   count: taskGroups.upcoming.length },
+          { v: "review" as const,   label: "待审",   count: taskGroups.review.length },
+          { v: "collab" as const,   label: "协作",   count: taskGroups.collab.length },
         ].map((t) => (
           <button key={t.v} onClick={() => setTab(t.v)}
-            className={"shrink-0 px-2.5 py-1 text-xs rounded-md transition-colors " +
+            className={"shrink-0 px-2.5 py-1 text-xs rounded-md " +
               (tab === t.v ? "bg-blue-50 text-blue-700 font-medium" : "text-gray-600 hover:bg-gray-50")}>
             {t.label} <span className="opacity-60">{t.count}</span>
           </button>
@@ -510,9 +654,7 @@ function TasksPanel({ tasks, taskGroups, tab, setTab, onChange }: {
       <div className="flex-1 overflow-y-auto px-3 py-2 max-h-[60vh]">
         {list.length === 0 ? (
           <div className="text-center text-sm text-gray-400 py-8">
-            {tab === "today" ? "🎉 今日无待办" :
-             tab === "upcoming" ? "未来 7 天无待办" :
-             tab === "review" ? "暂无待审" : "暂无协作"}
+            {tab === "today" ? "🎉 今日无待办" : tab === "upcoming" ? "未来 7 天无待办" : tab === "review" ? "暂无待审" : "暂无协作"}
           </div>
         ) : (
           <div className="space-y-1">
@@ -521,7 +663,7 @@ function TasksPanel({ tasks, taskGroups, tab, setTab, onChange }: {
         )}
       </div>
 
-      <div className="px-3 py-3 border-t border-gray-100 bg-gray-50/50 rounded-b-2xl">
+      <div className="px-3 py-2.5 border-t border-gray-100 bg-gray-50/50 rounded-b-2xl">
         <div className="flex items-center gap-1.5">
           <input value={quickTitle} onChange={(e) => setQuickTitle(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && quickTitle.trim()) quickAdd(); }}
@@ -549,12 +691,10 @@ function TaskRow({ task, onToggle }: { task: MyTask; onToggle: () => Promise<voi
   const isDone = task.status === "done";
   const isOverdue = task.due_at && !isDone && task.due_at.slice(0, 10) < todayStr();
   const priorityColors: Record<string, string> = {
-    high: "bg-rose-100 text-rose-700",
-    medium: "bg-amber-100 text-amber-700",
-    low: "bg-gray-100 text-gray-600",
+    high: "bg-rose-100 text-rose-700", medium: "bg-amber-100 text-amber-700", low: "bg-gray-100 text-gray-600",
   };
   return (
-    <div className="px-2 py-2 rounded-lg hover:bg-gray-50 flex items-start gap-2 group">
+    <div className="px-2 py-2 rounded-lg hover:bg-gray-50 flex items-start gap-2">
       <button onClick={onToggle} className="mt-0.5 shrink-0">
         {isDone ? <CheckCircle2 size={16} className="text-green-600" /> :
           <div className="w-4 h-4 border-2 border-gray-300 rounded hover:border-violet-500" />}
@@ -597,46 +737,34 @@ function ActionsPanel({ actions, onClose, onCreate, onDismiss }: {
             <Sparkles size={16} className="text-violet-600" />
             <h3 className="font-semibold text-gray-900">AI 检测到的待办（{actions.length}）</h3>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 text-gray-500">
-            <X size={18} />
-          </button>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 text-gray-500"><X size={18} /></button>
         </div>
-        {actions.length === 0 ? (
-          <div className="py-12 text-center text-sm text-gray-400">没有待处理的建议</div>
-        ) : (
-          <div className="p-4 space-y-3">
-            {actions.map((c, i) => (
-              <div key={i} className="border border-gray-200 rounded-xl p-3">
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <div className="flex-1 min-w-0">
-                    <h4 className="font-semibold text-gray-900 text-sm mb-1">{c.suggested_title}</h4>
-                    <p className="text-xs text-gray-500 mb-1">原文：「{c.text}」</p>
-                    <p className="text-xs text-gray-400">{c.reason}</p>
-                  </div>
-                  <span className={"text-[10px] px-2 py-0.5 rounded-full shrink-0 " +
-                    (c.priority === "high" ? "bg-rose-100 text-rose-700" :
-                     c.priority === "medium" ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-600")}>
-                    {c.priority === "high" ? "高" : c.priority === "medium" ? "中" : "低"}
-                  </span>
+        <div className="p-4 space-y-3">
+          {actions.map((c, i) => (
+            <div key={i} className="border border-gray-200 rounded-xl p-3">
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-semibold text-gray-900 text-sm mb-1">{c.suggested_title}</h4>
+                  <p className="text-xs text-gray-500 mb-1">原文：「{c.text}」</p>
+                  <p className="text-xs text-gray-400">{c.reason}</p>
                 </div>
-                <div className="flex items-center gap-2">
-                  {c.suggested_due && (
-                    <span className="text-[11px] text-blue-600">📅 {c.suggested_due}</span>
-                  )}
-                  <div className="flex-1" />
-                  <button onClick={() => onDismiss(c)}
-                    className="px-3 py-1 text-xs border border-gray-200 rounded-md hover:bg-gray-50 text-gray-600">
-                    忽略
-                  </button>
-                  <button onClick={() => onCreate(c)}
-                    className="px-3 py-1 text-xs bg-violet-600 text-white rounded-md hover:bg-violet-700">
-                    + 创建任务
-                  </button>
-                </div>
+                <span className={"text-[10px] px-2 py-0.5 rounded-full shrink-0 " +
+                  (c.priority === "high" ? "bg-rose-100 text-rose-700" :
+                   c.priority === "medium" ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-600")}>
+                  {c.priority === "high" ? "高" : c.priority === "medium" ? "中" : "低"}
+                </span>
               </div>
-            ))}
-          </div>
-        )}
+              <div className="flex items-center gap-2">
+                {c.suggested_due && <span className="text-[11px] text-blue-600">📅 {c.suggested_due}</span>}
+                <div className="flex-1" />
+                <button onClick={() => onDismiss(c)}
+                  className="px-3 py-1 text-xs border border-gray-200 rounded-md hover:bg-gray-50 text-gray-600">忽略</button>
+                <button onClick={() => onCreate(c)}
+                  className="px-3 py-1 text-xs bg-violet-600 text-white rounded-md hover:bg-violet-700">+ 创建任务</button>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
