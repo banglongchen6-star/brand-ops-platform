@@ -111,6 +111,8 @@ export default function HomePage() {
   const [tasks, setTasks] = useState<MyTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
+  // 新建但还没保存过的笔记 id（取消时直接删掉，避免空笔记残留）
+  const [newlyCreatedId, setNewlyCreatedId] = useState<string | null>(null);
   const [collapsedCats, setCollapsedCats] = useState<Set<string>>(new Set());
   const [taskTab, setTaskTab] = useState<"today" | "upcoming" | "review" | "collab">("today");
   const [showAddCategory, setShowAddCategory] = useState(false);
@@ -153,7 +155,7 @@ export default function HomePage() {
     if (j.note) {
       setNotes((prev) => [j.note, ...prev]);
       setEditingId(j.note.id);
-      // 确保该板块未折叠
+      setNewlyCreatedId(j.note.id); // 标记：此笔记是刚创建的，取消时直接删掉
       setCollapsedCats((prev) => { const n = new Set(prev); n.delete(categoryId); return n; });
     }
   }
@@ -166,6 +168,18 @@ export default function HomePage() {
     setNotes((prev) => prev.map((n) =>
       n.id === id ? { ...n, title, content_md, updated_at: new Date().toISOString() } : n));
     setEditingId(null);
+    if (newlyCreatedId === id) setNewlyCreatedId(null); // 已经保存了，去掉新建标记
+  }
+
+  async function cancelEdit() {
+    // 取消时：如果是刚创建还没保存过的笔记，直接删除
+    if (editingId && newlyCreatedId === editingId) {
+      const id = editingId;
+      await fetch(`/api/notes/${id}`, { method: "DELETE" });
+      setNotes((prev) => prev.filter((n) => n.id !== id));
+      setNewlyCreatedId(null);
+    }
+    setEditingId(null);
   }
 
   async function deleteNote(id: string) {
@@ -173,6 +187,7 @@ export default function HomePage() {
     await fetch(`/api/notes/${id}`, { method: "DELETE" });
     setNotes((prev) => prev.filter((n) => n.id !== id));
     if (editingId === id) setEditingId(null);
+    if (newlyCreatedId === id) setNewlyCreatedId(null);
   }
 
   async function detectActions(noteId: string) {
@@ -270,7 +285,7 @@ export default function HomePage() {
                     onEditCategory={() => setEditingCategory(cat)}
                     editingNoteId={editingId}
                     onStartEdit={(id) => setEditingId(id)}
-                    onCancelEdit={() => setEditingId(null)}
+                    onCancelEdit={cancelEdit}
                     onSaveNote={saveNote}
                     onDeleteNote={deleteNote}
                     onDetectActions={detectActions}
@@ -289,7 +304,7 @@ export default function HomePage() {
                   hideEditCategory
                   editingNoteId={editingId}
                   onStartEdit={(id) => setEditingId(id)}
-                  onCancelEdit={() => setEditingId(null)}
+                  onCancelEdit={cancelEdit}
                   onSaveNote={saveNote}
                   onDeleteNote={deleteNote}
                   onDetectActions={detectActions}
