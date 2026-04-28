@@ -434,15 +434,10 @@ function NoteCard({ note, isEditing, onStartEdit, onCancelEdit, onSave, onDelete
       <div className="prose prose-sm max-w-none text-gray-700">
         {renderMd(note.content_md)}
       </div>
-      <div className="mt-3 pt-2 border-t border-gray-50 text-[11px] text-gray-400 flex items-center gap-2">
+      <div className="mt-3 pt-2 border-t border-gray-50 text-[11px] text-gray-400 flex items-center justify-end gap-2">
         <span>{note.content_md.length} 字符</span>
         <span>·</span>
         <span>更新于 {new Date(note.updated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</span>
-        <div className="flex-1" />
-        <button onClick={onStartEdit}
-          className="opacity-0 group-hover:opacity-100 inline-flex items-center gap-1 text-violet-600 hover:underline">
-          <Edit2 size={10} />编辑
-        </button>
       </div>
     </div>
   );
