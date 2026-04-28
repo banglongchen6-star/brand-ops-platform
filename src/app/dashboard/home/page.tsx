@@ -413,31 +413,31 @@ function NoteCard({ note, isEditing, onStartEdit, onCancelEdit, onSave, onDelete
 
   return (
     <div className="group bg-white rounded-2xl border border-gray-200 shadow-sm p-5 hover:border-violet-300 hover:shadow-md transition-all">
-      <div className="flex items-start justify-between gap-2 mb-2">
+      <div className="flex items-start justify-between gap-3 mb-2">
         <div className="flex items-center gap-2 flex-1 min-w-0">
           <FileText size={14} className="text-violet-500 shrink-0" />
           <h3 className="font-bold text-gray-900 truncate">{note.title || "未命名"}</h3>
         </div>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-          <button onClick={onStartEdit}
-            className="p-1.5 rounded-md border border-gray-200 text-gray-500 hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300"
-            title="编辑">
-            <Edit2 size={12} />
-          </button>
-          <button onClick={onDelete}
-            className="p-1.5 rounded-md border border-gray-200 text-gray-500 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-300"
-            title="删除">
-            <Trash2 size={12} />
-          </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-[11px] text-gray-400 whitespace-nowrap">
+            {note.content_md.length} 字符 · 更新于 {new Date(note.updated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
+          </span>
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={onStartEdit}
+              className="p-1.5 rounded-md border border-gray-200 text-gray-500 hover:bg-violet-50 hover:text-violet-700 hover:border-violet-300"
+              title="编辑">
+              <Edit2 size={12} />
+            </button>
+            <button onClick={onDelete}
+              className="p-1.5 rounded-md border border-gray-200 text-gray-500 hover:bg-rose-50 hover:text-rose-600 hover:border-rose-300"
+              title="删除">
+              <Trash2 size={12} />
+            </button>
+          </div>
         </div>
       </div>
       <div className="prose prose-sm max-w-none text-gray-700">
         {renderMd(note.content_md)}
-      </div>
-      <div className="mt-3 pt-2 border-t border-gray-50 text-[11px] text-gray-400 flex items-center justify-end gap-2">
-        <span>{note.content_md.length} 字符</span>
-        <span>·</span>
-        <span>更新于 {new Date(note.updated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</span>
       </div>
     </div>
   );
