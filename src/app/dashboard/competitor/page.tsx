@@ -1,498 +1,379 @@
 "use client";
 
-import { useState, useEffect } from "react";
+// 竞品情报 — 总览页
+// 路径: /dashboard/competitor
+
+import { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
 import {
-  Swords,
-  Plus,
-  X,
-  ExternalLink,
-  Edit2,
-  Trash2,
-  Sparkles,
-  BarChart2,
-  Globe,
-  Info,
+  Swords, Plus, Loader2, X, Edit2, Trash2, ExternalLink,
+  Sparkles, Filter, Search, TrendingUp,
 } from "lucide-react";
-import { supabase, platformLabels } from "@/lib/supabase";
-import { cn } from "@/lib/utils";
 
 interface Competitor {
   id: string;
-  brand: string;
   name: string;
+  brand: string;
   platform: string;
-  shop_url: string | null;
-  price_min: number | null;
-  price_max: number | null;
-  monthly_sales: number | null;
-  notes: string | null;
+  shop_url: string;
+  category: string;
+  brand_position: string;
+  followers: number;
+  priority: number;
+  is_self: boolean;
+  notes: string;
+  sku_count: number;
   created_at: string;
+  updated_at: string;
 }
 
-const platformOptions = [
-  { value: "tianmao", label: "天猫" },
-  { value: "jingdong", label: "京东" },
-  { value: "douyin", label: "抖音" },
-  { value: "pinduoduo", label: "拼多多" },
-  { value: "other", label: "其他" },
+const PLATFORMS = [
+  { value: "all",         label: "全部",   color: "bg-gray-100 text-gray-700" },
+  { value: "douyin",      label: "抖音",   color: "bg-rose-100 text-rose-700" },
+  { value: "tmall",       label: "天猫",   color: "bg-orange-100 text-orange-700" },
+  { value: "jd",          label: "京东",   color: "bg-red-100 text-red-700" },
+  { value: "pinduoduo",   label: "拼多多", color: "bg-amber-100 text-amber-700" },
+  { value: "xiaohongshu", label: "小红书", color: "bg-pink-100 text-pink-700" },
+  { value: "weidian",     label: "微店",   color: "bg-purple-100 text-purple-700" },
+  { value: "other",       label: "其他",   color: "bg-gray-100 text-gray-700" },
 ];
 
-const platformColors: Record<string, string> = {
-  tianmao: "bg-orange-100 text-orange-700",
-  jingdong: "bg-red-100 text-red-700",
-  douyin: "bg-pink-100 text-pink-700",
-  pinduoduo: "bg-teal-100 text-teal-700",
-  other: "bg-gray-100 text-gray-600",
-};
-
-const emptyForm = {
-  brand: "",
-  name: "",
-  platform: "tianmao",
-  shop_url: "",
-  price_min: "",
-  price_max: "",
-  monthly_sales: "",
-  notes: "",
-};
+const POSITIONS = [
+  { value: "",          label: "未填" },
+  { value: "premium",   label: "高端" },
+  { value: "mid",       label: "中端" },
+  { value: "value",     label: "性价比" },
+  { value: "budget",    label: "低端" },
+];
 
 export default function CompetitorPage() {
   const [competitors, setCompetitors] = useState<Competitor[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [showAITip, setShowAITip] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [form, setForm] = useState(emptyForm);
+  const [platformFilter, setPlatformFilter] = useState("all");
+  const [keyword, setKeyword] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState<Competitor | null>(null);
 
-  useEffect(() => {
-    fetchCompetitors();
-  }, []);
+  useEffect(() => { load(); }, []);
 
-  async function fetchCompetitors() {
+  async function load() {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("competitors")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (!error && data) {
-      setCompetitors(data as Competitor[]);
-    }
+    const r = await fetch("/api/competitors");
+    const j = await r.json();
+    setCompetitors((j.competitors || []) as Competitor[]);
     setLoading(false);
   }
 
-  function openCreate() {
-    setEditingId(null);
-    setForm(emptyForm);
-    setShowModal(true);
+  async function deleteCompetitor(id: string) {
+    if (!confirm("删除这个竞品？关联的 SKU、快照、事件都会一并删除。")) return;
+    await fetch(`/api/competitors/${id}`, { method: "DELETE" });
+    await load();
   }
 
-  function openEdit(c: Competitor) {
-    setEditingId(c.id);
-    setForm({
-      brand: c.brand,
-      name: c.name,
-      platform: c.platform,
-      shop_url: c.shop_url || "",
-      price_min: c.price_min != null ? String(c.price_min) : "",
-      price_max: c.price_max != null ? String(c.price_max) : "",
-      monthly_sales: c.monthly_sales != null ? String(c.monthly_sales) : "",
-      notes: c.notes || "",
+  const filtered = useMemo(() => {
+    return competitors.filter((c) => {
+      if (platformFilter !== "all" && c.platform !== platformFilter) return false;
+      if (keyword) {
+        const k = keyword.toLowerCase();
+        return (c.name || "").toLowerCase().includes(k)
+          || (c.brand || "").toLowerCase().includes(k)
+          || (c.category || "").toLowerCase().includes(k);
+      }
+      return true;
     });
-    setShowModal(true);
-  }
+  }, [competitors, platformFilter, keyword]);
 
-  async function handleSubmit() {
-    if (!form.brand || !form.name) return;
-    setSubmitting(true);
-    const payload = {
-      brand: form.brand,
-      name: form.name,
-      platform: form.platform,
-      shop_url: form.shop_url || null,
-      price_min: form.price_min ? Number(form.price_min) : null,
-      price_max: form.price_max ? Number(form.price_max) : null,
-      monthly_sales: form.monthly_sales ? Number(form.monthly_sales) : null,
-      notes: form.notes || null,
-    };
-    if (editingId) {
-      await supabase.from("competitors").update(payload).eq("id", editingId);
-    } else {
-      await supabase.from("competitors").insert([payload]);
-    }
-    setSubmitting(false);
-    setShowModal(false);
-    fetchCompetitors();
-  }
-
-  async function handleDelete(id: string) {
-    await supabase.from("competitors").delete().eq("id", id);
-    setShowDeleteConfirm(null);
-    fetchCompetitors();
-  }
-
-  const uniquePlatforms = [...new Set(competitors.map((c) => c.platform))];
+  const selfList = filtered.filter((c) => c.is_self);
+  const compList = filtered.filter((c) => !c.is_self);
 
   return (
-    <div className="p-6 min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-6 max-w-[1400px] mx-auto">
+      <div className="flex items-center justify-between mb-5">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">竞品情报</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            追踪竞品动态，掌握市场格局
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <Swords size={22} className="text-violet-600" />
+            竞品情报
+          </h1>
+          <p className="text-sm text-gray-500 mt-0.5">
+            跟踪 {compList.length} 个竞品 · {selfList.length} 个我们品牌 · 共 {competitors.reduce((s, c) => s + (c.sku_count || 0), 0)} 个 SKU
           </p>
         </div>
-        <div className="flex gap-3">
-          <button
-            onClick={() => setShowAITip(true)}
-            className="flex items-center gap-2 px-4 py-2 border border-violet-300 text-violet-600 rounded-lg text-sm font-medium hover:bg-violet-50 transition-colors"
-          >
-            <Sparkles size={16} />
-            AI 分析
+        <div className="flex items-center gap-2">
+          <button disabled
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm border border-gray-200 rounded-lg text-gray-400 cursor-not-allowed"
+            title="P2 阶段实装">
+            <Sparkles size={14} />AI 生成周报
           </button>
-          <button
-            onClick={openCreate}
-            className="flex items-center gap-2 px-4 py-2 bg-violet-600 text-white rounded-lg text-sm font-medium hover:bg-violet-700 transition-colors"
-          >
-            <Plus size={16} />
-            添加竞品
+          <button onClick={() => { setEditing(null); setShowForm(true); }}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-violet-600 text-white rounded-lg hover:bg-violet-700 font-medium">
+            <Plus size={16} />添加竞品
           </button>
         </div>
       </div>
 
-      {/* Info Banner */}
-      <div className="bg-gray-100 rounded-xl px-4 py-3 mb-6 flex items-start gap-3">
-        <Info size={16} className="text-gray-400 mt-0.5 shrink-0" />
-        <p className="text-sm text-gray-600">
-          竞品数据以公开信息为主，支持手动录入。建议定期更新价格和销量，保持情报时效性。
-        </p>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <div className="bg-white rounded-xl border border-gray-100 p-4 flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-violet-50 flex items-center justify-center">
-            <Swords size={20} className="text-violet-500" />
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-violet-600">
-              {competitors.length}
-            </div>
-            <div className="text-xs text-gray-500">已录入竞品数</div>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-100 p-4 flex items-center gap-4">
-          <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
-            <Globe size={20} className="text-blue-500" />
-          </div>
-          <div>
-            <div className="text-2xl font-bold text-blue-600">
-              {uniquePlatforms.length}
-            </div>
-            <div className="text-xs text-gray-500">监控平台数</div>
-          </div>
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <Filter size={14} className="text-gray-400" />
+        {PLATFORMS.map((p) => (
+          <button key={p.value} onClick={() => setPlatformFilter(p.value)}
+            className={"px-3 py-1.5 text-xs rounded-full border transition-colors " +
+              (platformFilter === p.value ? "bg-violet-600 text-white border-violet-600"
+                : "bg-white text-gray-600 border-gray-200 hover:border-violet-300")}>
+            {p.label}
+          </button>
+        ))}
+        <div className="flex-1" />
+        <div className="relative">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input type="text" value={keyword} onChange={(e) => setKeyword(e.target.value)}
+            placeholder="搜店铺/品牌/品类..."
+            className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-lg w-56 focus:outline-none focus:border-violet-400" />
         </div>
       </div>
 
-      {/* Competitor Cards */}
+      {selfList.length > 0 && (
+        <div className="mb-4">
+          <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">🏠 我们品牌</h2>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {selfList.map((c) => (
+              <CompetitorCard key={c.id} c={c}
+                onEdit={() => { setEditing(c); setShowForm(true); }}
+                onDelete={() => deleteCompetitor(c.id)} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">⚔️ 竞品</h2>
       {loading ? (
         <div className="flex items-center justify-center py-20 text-gray-400">
-          <div className="animate-spin w-6 h-6 border-2 border-violet-400 border-t-transparent rounded-full mr-2" />
-          加载中...
+          <Loader2 className="animate-spin mr-2" size={18} />加载中...
         </div>
-      ) : competitors.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-          <Swords size={40} className="mb-3 opacity-30" />
-          <p className="text-sm">暂无竞品数据，点击「添加竞品」开始录入</p>
+      ) : compList.length === 0 ? (
+        <div className="bg-white rounded-xl border border-dashed border-gray-300 py-16 text-center">
+          <Swords size={32} className="mx-auto text-gray-300 mb-2" />
+          <p className="text-sm text-gray-500 mb-3">还没有竞品，点右上角添加</p>
+          <button onClick={() => { setEditing(null); setShowForm(true); }}
+            className="inline-flex items-center gap-1 px-4 py-2 text-sm bg-violet-600 text-white rounded-lg hover:bg-violet-700">
+            <Plus size={14} />添加第一个竞品
+          </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {competitors.map((c) => (
-            <div
-              key={c.id}
-              className="bg-white rounded-xl border border-gray-100 p-5 hover:shadow-md transition-shadow"
-            >
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs text-gray-400">{c.brand}</span>
-                    <span
-                      className={cn(
-                        "text-xs px-2 py-0.5 rounded-full font-medium",
-                        platformColors[c.platform] || "bg-gray-100 text-gray-600"
-                      )}
-                    >
-                      {platformLabels[c.platform] || c.platform}
-                    </span>
-                  </div>
-                  <h3 className="font-semibold text-gray-900 text-base">{c.name}</h3>
-                </div>
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => openEdit(c)}
-                    className="p-1.5 text-gray-400 hover:text-violet-600 hover:bg-violet-50 rounded-lg transition-colors"
-                  >
-                    <Edit2 size={14} />
-                  </button>
-                  <button
-                    onClick={() => setShowDeleteConfirm(c.id)}
-                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-2 text-sm">
-                {c.shop_url && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-gray-400 w-16 shrink-0">店铺链接</span>
-                    <a
-                      href={c.shop_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-violet-600 hover:underline flex items-center gap-1 truncate"
-                    >
-                      <ExternalLink size={12} />
-                      <span className="truncate">{c.shop_url}</span>
-                    </a>
-                  </div>
-                )}
-                {(c.price_min != null || c.price_max != null) && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-gray-400 w-16 shrink-0">价格区间</span>
-                    <span className="text-gray-700">
-                      ¥{c.price_min ?? "?"} ~ ¥{c.price_max ?? "?"}
-                    </span>
-                  </div>
-                )}
-                {c.monthly_sales != null && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-gray-400 w-16 shrink-0">月销量</span>
-                    <span className="text-gray-700 font-medium">
-                      {c.monthly_sales.toLocaleString()} 件
-                    </span>
-                  </div>
-                )}
-                {c.notes && (
-                  <div className="flex items-start gap-2">
-                    <span className="text-gray-400 w-16 shrink-0">备注</span>
-                    <span className="text-gray-500 line-clamp-2">{c.notes}</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-3 pt-3 border-t border-gray-50 text-xs text-gray-400">
-                录入于 {new Date(c.created_at).toLocaleDateString("zh-CN")}
-              </div>
-            </div>
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {compList.map((c) => (
+            <CompetitorCard key={c.id} c={c}
+              onEdit={() => { setEditing(c); setShowForm(true); }}
+              onDelete={() => deleteCompetitor(c.id)} />
           ))}
         </div>
       )}
 
-      {/* Add/Edit Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-6 border-b border-gray-100 sticky top-0 bg-white z-10">
-              <h2 className="text-lg font-semibold text-gray-900">
-                {editingId ? "编辑竞品" : "添加竞品"}
-              </h2>
-              <button
-                onClick={() => setShowModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    品牌 <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={form.brand}
-                    onChange={(e) => setForm({ ...form, brand: e.target.value })}
-                    placeholder="如：万魔音频"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    竞品名称 <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={form.name}
-                    onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    placeholder="如：智能尤克里里 Pro"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  平台
-                </label>
-                <select
-                  value={form.platform}
-                  onChange={(e) =>
-                    setForm({ ...form, platform: e.target.value })
-                  }
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
-                >
-                  {platformOptions.map((p) => (
-                    <option key={p.value} value={p.value}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  店铺链接
-                </label>
-                <input
-                  type="url"
-                  value={form.shop_url}
-                  onChange={(e) =>
-                    setForm({ ...form, shop_url: e.target.value })
-                  }
-                  placeholder="https://..."
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    价格下限 (¥)
-                  </label>
-                  <input
-                    type="number"
-                    value={form.price_min}
-                    onChange={(e) =>
-                      setForm({ ...form, price_min: e.target.value })
-                    }
-                    placeholder="如：199"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    价格上限 (¥)
-                  </label>
-                  <input
-                    type="number"
-                    value={form.price_max}
-                    onChange={(e) =>
-                      setForm({ ...form, price_max: e.target.value })
-                    }
-                    placeholder="如：599"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  月销量 (件)
-                </label>
-                <input
-                  type="number"
-                  value={form.monthly_sales}
-                  onChange={(e) =>
-                    setForm({ ...form, monthly_sales: e.target.value })
-                  }
-                  placeholder="如：1200"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  备注
-                </label>
-                <textarea
-                  value={form.notes}
-                  onChange={(e) =>
-                    setForm({ ...form, notes: e.target.value })
-                  }
-                  rows={3}
-                  placeholder="竞品特点、市场策略等备注信息"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-300 resize-none"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 p-6 border-t border-gray-100">
-              <button
-                onClick={() => setShowModal(false)}
-                className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:text-gray-800"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleSubmit}
-                disabled={submitting || !form.brand || !form.name}
-                className="px-4 py-2 text-sm bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {submitting ? "保存中..." : editingId ? "保存修改" : "添加竞品"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {showForm && (
+        <CompetitorFormModal
+          competitor={editing}
+          onClose={() => setShowForm(false)}
+          onSaved={async () => { setShowForm(false); await load(); }}
+        />
       )}
+    </div>
+  );
+}
 
-      {/* AI Tip Modal */}
-      {showAITip && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-8 text-center">
-            <div className="w-16 h-16 rounded-full bg-violet-100 flex items-center justify-center mx-auto mb-4">
-              <Sparkles size={28} className="text-violet-500" />
+function CompetitorCard({ c, onEdit, onDelete }: {
+  c: Competitor; onEdit: () => void; onDelete: () => void;
+}) {
+  const platMeta = PLATFORMS.find((p) => p.value === c.platform) || PLATFORMS[0];
+  return (
+    <div className={"group bg-white rounded-xl border p-4 hover:border-violet-300 hover:shadow-sm transition-all " +
+      (c.is_self ? "border-violet-300 bg-violet-50/30" : "border-gray-200")}>
+      <Link href={`/dashboard/competitor/${c.id}`} className="block">
+        <div className="flex items-start gap-2 mb-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className={`text-[10px] px-2 py-0.5 rounded-full ${platMeta.color}`}>
+                {platMeta.label}
+              </span>
+              {c.is_self && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-100 text-violet-700">
+                  我们品牌
+                </span>
+              )}
+              {c.priority >= 4 && <span className="text-amber-500 text-xs">★</span>}
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 mb-2">AI 分析功能</h3>
-            <p className="text-sm text-gray-500 mb-6">
-              连接 AI 分析功能开发中，敬请期待
-            </p>
-            <button
-              onClick={() => setShowAITip(false)}
-              className="px-6 py-2 bg-violet-600 text-white rounded-lg text-sm hover:bg-violet-700"
-            >
-              知道了
-            </button>
+            <h3 className="font-bold text-gray-900 truncate">{c.name}</h3>
+            {c.brand && c.brand !== c.name && (
+              <p className="text-xs text-gray-500 truncate mt-0.5">{c.brand}</p>
+            )}
           </div>
         </div>
-      )}
 
-      {/* Delete Confirm */}
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl p-6 text-center">
-            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
-              <Trash2 size={22} className="text-red-500" />
+        <div className="text-xs text-gray-500 space-y-0.5 mb-3">
+          {c.category && <div>📦 {c.category}</div>}
+          {c.brand_position && <div>🎯 {POSITIONS.find((p) => p.value === c.brand_position)?.label || c.brand_position}</div>}
+          {c.followers > 0 && <div>👥 {c.followers.toLocaleString()} 粉丝</div>}
+        </div>
+
+        <div className="flex items-center gap-3 pt-2 border-t border-gray-100 text-xs">
+          <span className="text-gray-500"><TrendingUp size={11} className="inline mr-0.5" />{c.sku_count} 个 SKU</span>
+          <span className="text-gray-400">更新 {new Date(c.updated_at).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" })}</span>
+        </div>
+      </Link>
+
+      <div className="flex items-center gap-1 mt-2 pt-2 border-t border-gray-50 opacity-0 group-hover:opacity-100 transition-opacity">
+        {c.shop_url && (
+          <a href={c.shop_url} target="_blank" rel="noreferrer"
+            className="p-1.5 rounded text-gray-400 hover:text-violet-600 hover:bg-violet-50" title="打开店铺">
+            <ExternalLink size={12} />
+          </a>
+        )}
+        <button onClick={onEdit}
+          className="p-1.5 rounded text-gray-400 hover:text-violet-600 hover:bg-violet-50" title="编辑">
+          <Edit2 size={12} />
+        </button>
+        <button onClick={onDelete}
+          className="p-1.5 rounded text-gray-400 hover:text-rose-600 hover:bg-rose-50" title="删除">
+          <Trash2 size={12} />
+        </button>
+        <div className="flex-1" />
+        <Link href={`/dashboard/competitor/${c.id}`}
+          className="text-xs text-violet-600 hover:underline">详情 →</Link>
+      </div>
+    </div>
+  );
+}
+
+function CompetitorFormModal({ competitor, onClose, onSaved }: {
+  competitor: Competitor | null;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [form, setForm] = useState({
+    name: competitor?.name || "",
+    brand: competitor?.brand || "",
+    platform: competitor?.platform || "douyin",
+    shop_url: competitor?.shop_url || "",
+    category: competitor?.category || "",
+    brand_position: competitor?.brand_position || "",
+    followers: competitor?.followers || 0,
+    priority: competitor?.priority || 3,
+    is_self: competitor?.is_self || false,
+    notes: competitor?.notes || "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function save() {
+    if (!form.name.trim()) { setError("店铺/品牌名不能为空"); return; }
+    setBusy(true); setError("");
+    const url = competitor ? `/api/competitors/${competitor.id}` : "/api/competitors";
+    const r = await fetch(url, {
+      method: competitor ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(form),
+    });
+    setBusy(false);
+    if (!r.ok) { const j = await r.json(); setError(j.error || "保存失败"); return; }
+    await onSaved();
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900">{competitor ? "编辑" : "新增"}竞品</h3>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 text-gray-500"><X size={18} /></button>
+        </div>
+
+        {error && <div className="mb-3 p-2 bg-rose-50 text-rose-700 text-xs rounded">{error}</div>}
+
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">店铺名 *</label>
+              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="例：XX 旗舰店"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400" />
             </div>
-            <h3 className="text-base font-semibold text-gray-900 mb-2">
-              确认删除
-            </h3>
-            <p className="text-sm text-gray-500 mb-6">删除后不可恢复，确定继续吗？</p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowDeleteConfirm(null)}
-                className="flex-1 px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-600 hover:text-gray-800"
-              >
-                取消
-              </button>
-              <button
-                onClick={() => handleDelete(showDeleteConfirm)}
-                className="flex-1 px-4 py-2 text-sm bg-red-500 text-white rounded-lg hover:bg-red-600"
-              >
-                确认删除
-              </button>
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">品牌</label>
+              <input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })}
+                placeholder="例：XX 品牌"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400" />
             </div>
           </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">平台 *</label>
+              <select value={form.platform} onChange={(e) => setForm({ ...form, platform: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400">
+                {PLATFORMS.filter((p) => p.value !== "all").map((p) => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">品牌定位</label>
+              <select value={form.brand_position} onChange={(e) => setForm({ ...form, brand_position: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400">
+                {POSITIONS.map((p) => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">店铺链接</label>
+            <input value={form.shop_url} onChange={(e) => setForm({ ...form, shop_url: e.target.value })}
+              placeholder="https://..."
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400" />
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">细分品类</label>
+              <input value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}
+                placeholder="如：电子琴"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">粉丝数</label>
+              <input type="number" value={form.followers} onChange={(e) => setForm({ ...form, followers: Number(e.target.value) })}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400" />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-600 mb-1">关注度</label>
+              <select value={form.priority} onChange={(e) => setForm({ ...form, priority: Number(e.target.value) })}
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400">
+                {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{"★".repeat(n)}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs text-gray-600 mb-1">备注</label>
+            <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              rows={2} placeholder="店铺特点、关注理由..."
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm resize-none focus:outline-none focus:border-violet-400" />
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-gray-700 pt-1">
+            <input type="checkbox" checked={form.is_self} onChange={(e) => setForm({ ...form, is_self: e.target.checked })} />
+            <span>这是「我们品牌」（用于对比展示）</span>
+          </label>
         </div>
-      )}
+
+        <div className="flex justify-end gap-2 mt-5">
+          <button onClick={onClose} className="px-4 py-2 text-sm border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50">
+            取消
+          </button>
+          <button onClick={save} disabled={busy}
+            className="inline-flex items-center gap-1 px-4 py-2 text-sm bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50">
+            {busy ? <Loader2 size={14} className="animate-spin" /> : null}
+            保存
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
