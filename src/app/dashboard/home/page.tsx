@@ -613,27 +613,6 @@ function TasksPanel({ tasks, taskGroups, tab, setTab, onChange }: {
   setTab: (t: "today" | "upcoming" | "review" | "collab") => void;
   onChange: () => Promise<void>;
 }) {
-  const [quickTitle, setQuickTitle] = useState("");
-  const [quickDue, setQuickDue] = useState("");
-  const [quickPriority, setQuickPriority] = useState<"low" | "medium" | "high">("medium");
-  const [adding, setAdding] = useState(false);
-
-  async function quickAdd() {
-    if (!quickTitle.trim()) return;
-    setAdding(true);
-    await fetch("/api/tasks/quick-add", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: quickTitle.trim(),
-        due_at: quickDue ? quickDue + "T18:00:00" : null,
-        priority: quickPriority,
-      }),
-    });
-    setQuickTitle(""); setQuickDue("");
-    await onChange();
-    setAdding(false);
-  }
-
   async function toggleDone(t: MyTask) {
     const newStatus = t.status === "done" ? "todo" : "done";
     await supabase.from("tasks").update({ status: newStatus, updated_at: new Date().toISOString() }).eq("id", t.id);
@@ -666,7 +645,7 @@ function TasksPanel({ tasks, taskGroups, tab, setTab, onChange }: {
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-2 max-h-[60vh]">
+      <div className="flex-1 overflow-y-auto px-3 py-2 max-h-[60vh] rounded-b-2xl">
         {list.length === 0 ? (
           <div className="text-center text-sm text-gray-400 py-8">
             {tab === "today" ? "🎉 今日无待办" : tab === "upcoming" ? "未来 7 天无待办" : tab === "review" ? "暂无待审" : "暂无协作"}
@@ -676,27 +655,6 @@ function TasksPanel({ tasks, taskGroups, tab, setTab, onChange }: {
             {list.map((t) => <TaskRow key={t.id} task={t} onToggle={() => toggleDone(t)} />)}
           </div>
         )}
-      </div>
-
-      <div className="px-3 py-2.5 border-t border-gray-100 bg-gray-50/50 rounded-b-2xl">
-        <div className="flex items-center gap-1.5">
-          <input value={quickTitle} onChange={(e) => setQuickTitle(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && quickTitle.trim()) quickAdd(); }}
-            placeholder="快速新建任务..."
-            className="flex-1 min-w-0 px-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:border-violet-400" />
-          <input type="date" value={quickDue} onChange={(e) => setQuickDue(e.target.value)}
-            className="w-28 px-1 py-1.5 border border-gray-200 rounded-lg text-[11px] focus:outline-none focus:border-violet-400" />
-          <select value={quickPriority} onChange={(e) => setQuickPriority(e.target.value as "low" | "medium" | "high")}
-            className="px-1 py-1.5 border border-gray-200 rounded-lg text-[11px] focus:outline-none focus:border-violet-400">
-            <option value="low">低</option>
-            <option value="medium">中</option>
-            <option value="high">高</option>
-          </select>
-          <button onClick={quickAdd} disabled={!quickTitle.trim() || adding}
-            className="shrink-0 inline-flex items-center px-2 py-1.5 bg-violet-600 text-white text-xs rounded-lg hover:bg-violet-700 disabled:opacity-50">
-            {adding ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-          </button>
-        </div>
       </div>
     </div>
   );

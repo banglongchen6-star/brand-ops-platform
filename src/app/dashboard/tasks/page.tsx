@@ -293,7 +293,7 @@ export default function TasksPage() {
   const [taskTypeFilter, setTaskTypeFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [yearFilter, setYearFilter] = useState(String(new Date().getFullYear())); // 默认本年
-  const [monthFilter, setMonthFilter] = useState("all"); // 月份：MM (01-12) 或 "all"
+  const [monthFilter, setMonthFilter] = useState(String(new Date().getMonth() + 1).padStart(2, "0")); // 默认本月（无"全部"选项）
   const [searchText, setSearchText] = useState("");
 
   // ── Detail drawer ──
@@ -424,16 +424,9 @@ export default function TasksPage() {
       taskTypeFilter === "all" || (t.task_type ?? "normal") === taskTypeFilter;
     const matchSource =
       sourceFilter === "all" || (t.source_type ?? "manual") === sourceFilter;
-    const matchYear = (() => {
-      if (yearFilter === "all") return true;
-      if (!t.due_at) return false;
-      return t.due_at.slice(0, 4) === yearFilter;
-    })();
-    const matchMonth = (() => {
-      if (monthFilter === "all") return true;
-      if (!t.due_at) return false;
-      return t.due_at.slice(5, 7) === monthFilter;
-    })();
+    // 年/月：无 due_at 的任务始终通过（不被日期筛选过滤掉）
+    const matchYear = !t.due_at || t.due_at.slice(0, 4) === yearFilter;
+    const matchMonth = !t.due_at || t.due_at.slice(5, 7) === monthFilter;
     const matchSearch =
       searchText === "" ||
       t.title.toLowerCase().includes(searchText.toLowerCase()) ||
@@ -1021,9 +1014,8 @@ export default function TasksPage() {
                 value={yearFilter}
                 onChange={(e) => setYearFilter(e.target.value)}
                 className="text-xs border border-gray-200 rounded-lg pl-2.5 pr-7 py-1.5 outline-none focus:border-violet-400 appearance-none bg-white"
-                title="按截止日期年份筛选"
+                title="按截止日期年份筛选（无截止日期的任务不受影响）"
               >
-                <option value="all">全部</option>
                 {yearOptions.map((y) => (
                   <option key={y} value={y}>{y}年</option>
                 ))}
@@ -1040,9 +1032,8 @@ export default function TasksPage() {
                 value={monthFilter}
                 onChange={(e) => setMonthFilter(e.target.value)}
                 className="text-xs border border-gray-200 rounded-lg pl-2.5 pr-7 py-1.5 outline-none focus:border-violet-400 appearance-none bg-white"
-                title="按截止日期月份筛选"
+                title="按截止日期月份筛选（无截止日期的任务不受影响）"
               >
-                <option value="all">全部</option>
                 {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
                   <option key={m} value={String(m).padStart(2, "0")}>{m}月</option>
                 ))}
@@ -1071,7 +1062,7 @@ export default function TasksPage() {
           <span className="text-sm font-semibold text-gray-700">
             共 {filtered.length} 项任务
           </span>
-          {(statusFilter !== "all" || priorityFilter !== "all" || moduleFilter !== "all" || taskTypeFilter !== "all" || sourceFilter !== "all" || yearFilter !== String(new Date().getFullYear()) || monthFilter !== "all" || searchText) && (
+          {(statusFilter !== "all" || priorityFilter !== "all" || moduleFilter !== "all" || taskTypeFilter !== "all" || sourceFilter !== "all" || yearFilter !== String(new Date().getFullYear()) || monthFilter !== String(new Date().getMonth() + 1).padStart(2, "0") || searchText) && (
             <button
               onClick={() => {
                 setStatusFilter("all");
@@ -1080,7 +1071,7 @@ export default function TasksPage() {
                 setTaskTypeFilter("all");
                 setSourceFilter("all");
                 setYearFilter(String(new Date().getFullYear()));
-                setMonthFilter("all");
+                setMonthFilter(String(new Date().getMonth() + 1).padStart(2, "0"));
                 setSearchText("");
               }}
               className="text-xs text-gray-400 hover:text-violet-600 transition flex items-center gap-1"
