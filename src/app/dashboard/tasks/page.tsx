@@ -292,7 +292,8 @@ export default function TasksPage() {
   const [moduleFilter, setModuleFilter] = useState("all");
   const [taskTypeFilter, setTaskTypeFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
-  const [monthFilter, setMonthFilter] = useState("all"); // YYYY-MM 或 "all"
+  const [yearFilter, setYearFilter] = useState(String(new Date().getFullYear())); // 默认本年
+  const [monthFilter, setMonthFilter] = useState("all"); // 月份：MM (01-12) 或 "all"
   const [searchText, setSearchText] = useState("");
 
   // ── Detail drawer ──
@@ -423,23 +424,29 @@ export default function TasksPage() {
       taskTypeFilter === "all" || (t.task_type ?? "normal") === taskTypeFilter;
     const matchSource =
       sourceFilter === "all" || (t.source_type ?? "manual") === sourceFilter;
+    const matchYear = (() => {
+      if (yearFilter === "all") return true;
+      if (!t.due_at) return false;
+      return t.due_at.slice(0, 4) === yearFilter;
+    })();
     const matchMonth = (() => {
       if (monthFilter === "all") return true;
       if (!t.due_at) return false;
-      return t.due_at.slice(0, 7) === monthFilter; // YYYY-MM 比较
+      return t.due_at.slice(5, 7) === monthFilter;
     })();
     const matchSearch =
       searchText === "" ||
       t.title.toLowerCase().includes(searchText.toLowerCase()) ||
       (t.description ?? "").toLowerCase().includes(searchText.toLowerCase());
-    return matchStatus && matchPriority && matchModule && matchType && matchSource && matchMonth && matchSearch;
+    return matchStatus && matchPriority && matchModule && matchType && matchSource && matchYear && matchMonth && matchSearch;
   });
 
-  // 月份选项：从所有任务的 due_at 提取（去重，倒序）
-  const monthOptions = (() => {
+  // 年份选项：从所有任务的 due_at 提取（去重，倒序）+ 当前年保底
+  const yearOptions = (() => {
     const set = new Set<string>();
+    set.add(String(new Date().getFullYear()));
     for (const t of tasks) {
-      if (t.due_at) set.add(t.due_at.slice(0, 7));
+      if (t.due_at) set.add(t.due_at.slice(0, 4));
     }
     return Array.from(set).sort((a, b) => b.localeCompare(a));
   })();
@@ -1006,7 +1013,26 @@ export default function TasksPage() {
             </div>
           </div>
 
-          {/* Month filter (按截止日期月份) */}
+          {/* Year filter */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-gray-400 shrink-0">年份：</span>
+            <div className="relative">
+              <select
+                value={yearFilter}
+                onChange={(e) => setYearFilter(e.target.value)}
+                className="text-xs border border-gray-200 rounded-lg pl-2.5 pr-7 py-1.5 outline-none focus:border-violet-400 appearance-none bg-white"
+                title="按截止日期年份筛选"
+              >
+                <option value="all">全部</option>
+                {yearOptions.map((y) => (
+                  <option key={y} value={y}>{y}年</option>
+                ))}
+              </select>
+              <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            </div>
+          </div>
+
+          {/* Month filter */}
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-gray-400 shrink-0">月份：</span>
             <div className="relative">
@@ -1017,8 +1043,8 @@ export default function TasksPage() {
                 title="按截止日期月份筛选"
               >
                 <option value="all">全部</option>
-                {monthOptions.map((m) => (
-                  <option key={m} value={m}>{m.replace("-", "/")}</option>
+                {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                  <option key={m} value={String(m).padStart(2, "0")}>{m}月</option>
                 ))}
               </select>
               <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
@@ -1045,7 +1071,7 @@ export default function TasksPage() {
           <span className="text-sm font-semibold text-gray-700">
             共 {filtered.length} 项任务
           </span>
-          {(statusFilter !== "all" || priorityFilter !== "all" || moduleFilter !== "all" || taskTypeFilter !== "all" || sourceFilter !== "all" || monthFilter !== "all" || searchText) && (
+          {(statusFilter !== "all" || priorityFilter !== "all" || moduleFilter !== "all" || taskTypeFilter !== "all" || sourceFilter !== "all" || yearFilter !== String(new Date().getFullYear()) || monthFilter !== "all" || searchText) && (
             <button
               onClick={() => {
                 setStatusFilter("all");
@@ -1053,6 +1079,7 @@ export default function TasksPage() {
                 setModuleFilter("all");
                 setTaskTypeFilter("all");
                 setSourceFilter("all");
+                setYearFilter(String(new Date().getFullYear()));
                 setMonthFilter("all");
                 setSearchText("");
               }}
