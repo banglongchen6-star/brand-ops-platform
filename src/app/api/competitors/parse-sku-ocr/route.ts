@@ -3,6 +3,7 @@
 
 import OCRClient, { RecognizeAdvancedRequest } from "@alicloud/ocr-api20210707";
 import OpenApiClient, { Config } from "@alicloud/openapi-client";
+import { RuntimeOptions } from "@alicloud/tea-util";
 import { loadActiveAIConfig } from "@/lib/aiClient";
 import { Readable } from "stream";
 
@@ -52,7 +53,8 @@ export async function POST(req: Request) {
     const client = buildOcrClient();
     const stream = Readable.from(buf);
     const request = new RecognizeAdvancedRequest({ body: stream as unknown as Readable });
-    const response = await client.recognizeAdvanced(request);
+    const runtime = new RuntimeOptions({ readTimeout: 15000, connectTimeout: 8000 });
+    const response = await client.recognizeAdvancedWithOptions(request, runtime);
     // 提取所有识别到的文字块
     const data = response?.body?.data;
     if (!data) throw new Error("OCR 返回数据为空");
