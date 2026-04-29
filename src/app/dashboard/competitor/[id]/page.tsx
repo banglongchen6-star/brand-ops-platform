@@ -9,6 +9,7 @@ import { useParams } from "next/navigation";
 import {
   ArrowLeft, Plus, Loader2, X, Edit2, Trash2, ExternalLink,
   TrendingUp, AlertCircle, Save, Calendar as CalendarIcon, Flame,
+  Sparkles, Image as ImageIcon, Upload, ClipboardPaste,
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
@@ -431,17 +432,80 @@ function SkuFormModal({ competitorId, sku, onClose, onSaved }: {
     name: sku?.name || "",
     product_url: sku?.product_url || "",
     category: sku?.category || "",
-    current_price: sku?.current_price ?? "",
-    original_price: sku?.original_price ?? "",
+    current_price: sku?.current_price != null ? String(sku.current_price) : "",
+    original_price: sku?.original_price != null ? String(sku.original_price) : "",
     current_sales: sku?.current_sales || 0,
     monthly_sales: sku?.monthly_sales || 0,
-    rating: sku?.rating ?? "",
+    rating: sku?.rating != null ? String(sku.rating) : "",
     review_count: sku?.review_count || 0,
     is_hot: sku?.is_hot || false,
     notes: sku?.notes || "",
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  // ===== 截图识别 =====
+  const [showVision, setShowVision] = useState(!sku); // 新建时默认展开
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>("");
+  const [parsing, setParsing] = useState(false);
+  const [visionResult, setVisionResult] = useState<{ confidence?: string; notes?: string; filled?: string[] } | null>(null);
+
+  function setImage(file: File) {
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onload = () => setImagePreview(reader.result as string);
+    reader.readAsDataURL(file);
+    setVisionResult(null);
+  }
+
+  // 监听粘贴
+  useEffect(() => {
+    function onPaste(e: ClipboardEvent) {
+      if (!showVision) return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+          const file = item.getAsFile();
+          if (file) { setImage(file); e.preventDefault(); break; }
+        }
+      }
+    }
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [showVision]);
+
+  async function parseImage() {
+    if (!imageFile) return;
+    setParsing(true); setError(""); setVisionResult(null);
+    const fd = new FormData();
+    fd.append("image", imageFile);
+    const r = await fetch("/api/competitors/parse-sku-image", { method: "POST", body: fd });
+    const j = await r.json();
+    setParsing(false);
+    if (!r.ok) { setError(j.error || "识别失败"); return; }
+    const d = j.data || {};
+    const filled: string[] = [];
+    setForm((prev) => {
+      const next = { ...prev };
+      if (d.name) { next.name = String(d.name); filled.push("名称"); }
+      if (d.category) { next.category = String(d.category); filled.push("品类"); }
+      if (d.current_price != null) { next.current_price = String(d.current_price); filled.push("当前价"); }
+      if (d.original_price != null) { next.original_price = String(d.original_price); filled.push("原价"); }
+      if (d.current_sales != null) { next.current_sales = Number(d.current_sales); filled.push("累计销量"); }
+      if (d.monthly_sales != null) { next.monthly_sales = Number(d.monthly_sales); filled.push("月销"); }
+      if (d.rating != null) { next.rating = String(d.rating); filled.push("评分"); }
+      if (d.review_count != null) { next.review_count = Number(d.review_count); filled.push("评价数"); }
+      if (d.is_hot === true) { next.is_hot = true; filled.push("爆款"); }
+      return next;
+    });
+    setVisionResult({ confidence: d.confidence, notes: d.notes, filled });
+  }
+
+  function clearImage() {
+    setImageFile(null); setImagePreview(""); setVisionResult(null);
+  }
 
   async function save() {
     if (!form.name.trim()) { setError("SKU 名称不能为空"); return; }
@@ -467,12 +531,81 @@ function SkuFormModal({ competitorId, sku, onClose, onSaved }: {
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className="font-semibold text-gray-900">{sku ? "编辑" : "添加"} SKU</h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 text-gray-500"><X size={18} /></button>
         </div>
         {error && <div className="mb-3 p-2 bg-rose-50 text-rose-700 text-xs rounded">{error}</div>}
+
+        {/* 截图识别区 */}
+        <div className="mb-4 border border-violet-200 bg-violet-50/40 rounded-xl overflow-hidden">
+          <button onClick={() => setShowVision(!showVision)}
+            className="w-full px-4 py-2.5 flex items-center gap-2 text-sm font-medium text-violet-700 hover:bg-violet-50">
+            <Sparkles size={14} />
+            <span>Qwen-VL · 截图智能识别</span>
+            <span className="text-[10px] text-gray-500">（粘贴或拖拽商品页截图，AI 自动填表）</span>
+            <span className="ml-auto text-xs">{showVision ? "▼" : "▶"}</span>
+          </button>
+          {showVision && (
+            <div className="px-4 pb-4 space-y-3 border-t border-violet-100">
+              {!imagePreview ? (
+                <label className="block mt-3 border-2 border-dashed border-violet-300 rounded-lg p-6 text-center cursor-pointer hover:bg-violet-50 transition-colors">
+                  <input type="file" accept="image/*" className="hidden"
+                    onChange={(e) => { if (e.target.files?.[0]) setImage(e.target.files[0]); }} />
+                  <Upload size={20} className="mx-auto text-violet-500 mb-2" />
+                  <p className="text-sm text-gray-700">点击上传截图，或</p>
+                  <p className="text-xs text-violet-600 mt-1 flex items-center justify-center gap-1">
+                    <ClipboardPaste size={11} />
+                    Cmd+V 直接粘贴（Mac 截屏后）
+                  </p>
+                  <p className="text-[10px] text-gray-400 mt-2">支持 JPG/PNG/WebP，≤ 8MB</p>
+                </label>
+              ) : (
+                <div className="mt-3">
+                  <div className="relative rounded-lg overflow-hidden bg-gray-100 mb-2 max-h-64">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={imagePreview} alt="预览" className="w-full h-auto max-h-64 object-contain" />
+                    <button onClick={clearImage}
+                      className="absolute top-2 right-2 p-1 bg-black/60 text-white rounded-full hover:bg-black/80">
+                      <X size={12} />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={parseImage} disabled={parsing}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50">
+                      {parsing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                      {parsing ? "Qwen-VL 识别中..." : "开始识别"}
+                    </button>
+                    <button onClick={clearImage}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50">
+                      换一张
+                    </button>
+                    {visionResult && (
+                      <span className="text-[11px] text-gray-500 ml-auto">
+                        置信度：<span className={
+                          visionResult.confidence === "high" ? "text-green-600 font-medium" :
+                          visionResult.confidence === "low" ? "text-amber-600" : "text-blue-600"
+                        }>{visionResult.confidence === "high" ? "高" : visionResult.confidence === "low" ? "低" : "中"}</span>
+                      </span>
+                    )}
+                  </div>
+                  {visionResult?.filled && visionResult.filled.length > 0 && (
+                    <div className="mt-2 p-2 bg-green-50 rounded text-xs text-green-800">
+                      ✓ 已自动填入：{visionResult.filled.join(" / ")}
+                    </div>
+                  )}
+                  {visionResult?.notes && (
+                    <div className="mt-1 text-[11px] text-amber-700 bg-amber-50 px-2 py-1 rounded">
+                      💡 {visionResult.notes}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="space-y-3">
           <div>
             <label className="block text-xs text-gray-600 mb-1">商品名称 *</label>
