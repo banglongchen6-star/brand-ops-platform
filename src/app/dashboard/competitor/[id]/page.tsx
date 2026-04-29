@@ -481,7 +481,7 @@ function SkuFormModal({ competitorId, sku, onClose, onSaved }: {
     setParsing(true); setError(""); setVisionResult(null);
     const fd = new FormData();
     fd.append("image", imageFile);
-    const r = await fetch("/api/competitors/parse-sku-image", { method: "POST", body: fd });
+    const r = await fetch("/api/competitors/parse-sku-ocr", { method: "POST", body: fd });
     const j = await r.json();
     setParsing(false);
     if (!r.ok) { setError(j.error || "识别失败"); return; }
@@ -543,7 +543,7 @@ function SkuFormModal({ competitorId, sku, onClose, onSaved }: {
           <button onClick={() => setShowVision(!showVision)}
             className="w-full px-4 py-2.5 flex items-center gap-2 text-sm font-medium text-violet-700 hover:bg-violet-50">
             <Sparkles size={14} />
-            <span>Qwen-VL · 截图智能识别</span>
+            <span>阿里云OCR · 截图智能识别</span>
             <span className="text-[10px] text-gray-500">（粘贴或拖拽商品页截图，AI 自动填表）</span>
             <span className="ml-auto text-xs">{showVision ? "▼" : "▶"}</span>
           </button>
@@ -575,7 +575,7 @@ function SkuFormModal({ competitorId, sku, onClose, onSaved }: {
                     <button onClick={parseImage} disabled={parsing}
                       className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50">
                       {parsing ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                      {parsing ? "Qwen-VL 识别中..." : "开始识别"}
+                      {parsing ? "OCR 识别中..." : "开始识别"}
                     </button>
                     <button onClick={clearImage}
                       className="inline-flex items-center gap-1 px-3 py-1.5 text-xs border border-gray-200 rounded-lg text-gray-600 hover:bg-gray-50">
