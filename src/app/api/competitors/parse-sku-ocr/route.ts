@@ -1,7 +1,7 @@
 // 截图识别 SKU —— 阿里云 OCR 高精版 + Qwen 结构化
 // 流程：图片先传 Supabase CDN → URL 传阿里云 OCR → 文字传 Qwen → 结构化 JSON
 
-import OCRClient, { RecognizeAdvancedRequest } from "@alicloud/ocr-api20210707";
+import OCRClient, { RecognizeGeneralRequest } from "@alicloud/ocr-api20210707";
 import OpenApiClient, { Config } from "@alicloud/openapi-client";
 import { RuntimeOptions } from "@alicloud/tea-util";
 import { loadActiveAIConfig } from "@/lib/aiClient";
@@ -74,9 +74,9 @@ export async function POST(req: Request) {
   let ocrText: string;
   try {
     const client = buildOcrClient();
-    const request = new RecognizeAdvancedRequest({ url: publicUrl });
+    const request = new RecognizeGeneralRequest({ url: publicUrl });
     const runtime = new RuntimeOptions({ readTimeout: 20000, connectTimeout: 10000 });
-    const response = await client.recognizeAdvancedWithOptions(request, runtime);
+    const response = await client.recognizeGeneralWithOptions(request, runtime);
 
     const data = response?.body?.data;
     if (!data) throw new Error("OCR 返回数据为空");
