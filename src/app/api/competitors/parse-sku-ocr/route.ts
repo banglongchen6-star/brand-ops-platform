@@ -1,14 +1,15 @@
 // 截图识别 SKU —— 阿里云 OCR 高精版 + Qwen 结构化
-// 流程：图片 → 阿里云 RecognizeAdvanced（提取文字）→ Qwen（解析为 JSON 字段）
+// 流程：图片先传 Supabase CDN → URL 传阿里云 OCR → 文字传 Qwen → 结构化 JSON
 
 import OCRClient, { RecognizeAdvancedRequest } from "@alicloud/ocr-api20210707";
 import OpenApiClient, { Config } from "@alicloud/openapi-client";
 import { RuntimeOptions } from "@alicloud/tea-util";
 import { loadActiveAIConfig } from "@/lib/aiClient";
-import { Readable } from "stream";
+import { createClient } from "@supabase/supabase-js";
 
 const MAX_SIZE = 8 * 1024 * 1024; // 8MB
 const OCR_ENDPOINT = "ocr-api.cn-hangzhou.aliyuncs.com";
+const OCR_BUCKET = "wx-article-images";
 
 interface ParsedSku {
   name: string | null;
@@ -35,6 +36,13 @@ function buildOcrClient() {
   return new OCRClient(config);
 }
 
+function buildSupabaseAdmin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
+
 export async function POST(req: Request) {
   let formData: FormData;
   try { formData = await req.formData(); }
@@ -46,46 +54,63 @@ export async function POST(req: Request) {
   if (!file.type.startsWith("image/")) return Response.json({ error: "只支持图片" }, { status: 400 });
 
   const buf = Buffer.from(await file.arrayBuffer());
+  const ext = (file.type.split("/")[1] || "png").toLowerCase().replace("jpeg", "jpg");
 
-  // ── Step 1：阿里云 OCR 提取文字 ──
+  // ── Step 1：上传到 Supabase Storage，获取公开 URL ──
+  const supabase = buildSupabaseAdmin();
+  const tempPath = `ocr-temp/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+  const { error: uploadError } = await supabase.storage
+    .from(OCR_BUCKET)
+    .upload(tempPath, buf, { contentType: file.type, upsert: true });
+
+  if (uploadError) {
+    return Response.json({ error: "图片上传失败：" + uploadError.message }, { status: 500 });
+  }
+
+  const { data: urlData } = supabase.storage.from(OCR_BUCKET).getPublicUrl(tempPath);
+  const publicUrl = urlData.publicUrl;
+
+  // ── Step 2：阿里云 OCR 通过 URL 识别（避免二进制跨洋传输）──
   let ocrText: string;
   try {
     const client = buildOcrClient();
-    const stream = Readable.from(buf);
-    const request = new RecognizeAdvancedRequest({ body: stream as unknown as Readable });
-    const runtime = new RuntimeOptions({ readTimeout: 15000, connectTimeout: 8000 });
+    const request = new RecognizeAdvancedRequest({ url: publicUrl });
+    const runtime = new RuntimeOptions({ readTimeout: 20000, connectTimeout: 10000 });
     const response = await client.recognizeAdvancedWithOptions(request, runtime);
-    // 提取所有识别到的文字块
+
     const data = response?.body?.data;
     if (!data) throw new Error("OCR 返回数据为空");
-    // 解析 JSON 字符串结果
+
     let parsed: Record<string, unknown>;
     try { parsed = typeof data === "string" ? JSON.parse(data) : data as Record<string, unknown>; }
     catch { throw new Error("OCR 返回格式异常：" + String(data).slice(0, 200)); }
 
-    // 收集所有文字块的 word
     const lines: string[] = [];
     const blocks = (parsed as { prism_wordsInfo?: { word?: string }[] })?.prism_wordsInfo ?? [];
     for (const b of blocks) {
       if (b.word) lines.push(b.word.trim());
     }
     if (lines.length === 0) {
-      // 兜底：整段 content 字段
       const content = (parsed as { content?: string })?.content;
       if (content) lines.push(content);
     }
     ocrText = lines.join("\n");
     if (!ocrText.trim()) throw new Error("OCR 未识别到任何文字，请确认图片清晰度");
   } catch (e) {
+    // 清理临时文件（不阻塞）
+    supabase.storage.from(OCR_BUCKET).remove([tempPath]).catch(() => {});
     const msg = e instanceof Error ? e.message : String(e);
     let friendly = "阿里云 OCR 调用失败：" + msg;
     if (msg.includes("ALIYUN_OCR")) friendly = msg;
     else if (msg.includes("InvalidAccessKeyId")) friendly = "OCR AccessKey 无效，请检查环境变量";
     else if (msg.includes("ServiceNotOpened")) friendly = "OCR 服务未开通，请前往阿里云控制台开通「OCR 统一识别服务」";
     return Response.json({ error: friendly }, { status: 500 });
+  } finally {
+    // 识别完成后清理临时文件
+    supabase.storage.from(OCR_BUCKET).remove([tempPath]).catch(() => {});
   }
 
-  // ── Step 2：Qwen 文本模型结构化 ──
+  // ── Step 3：Qwen 文本模型结构化 ──
   let apiKey: string;
   let baseUrl: string;
   let model: string;
