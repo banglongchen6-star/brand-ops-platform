@@ -15,7 +15,7 @@ const navGroups = [
   {
     label: "核心业务",
     items: [
-      { href: "/dashboard/home",       label: "工作台首页", icon: LayoutDashboard },
+      { href: "/dashboard/home",       label: "工作笔记", icon: LayoutDashboard },
       { href: "/dashboard/tasks",      label: "任务中心",   icon: CheckSquare, badge: "今日" },
       { href: "/dashboard/sales",      label: "电商销售",   icon: ShoppingCart },
       { href: "/dashboard/kol",        label: "达人营销",   icon: Users },
