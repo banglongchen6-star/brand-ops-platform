@@ -558,7 +558,7 @@ function NoteCard({ note, isEditing, onStartEdit, onCancelEdit, onSave, onDelete
             className="shrink-0 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity touch-none">
             <GripVertical size={13} />
           </span>
-          {note.title && (
+          {note.title && note.title !== "新笔记" && note.title !== "速记" && (
             <>
               <FileText size={11} className="text-violet-500 shrink-0" />
               <h3 className="font-bold text-gray-900 text-sm truncate">{note.title}</h3>
