@@ -336,19 +336,43 @@ export default function HomePage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
+          {/* columns 分栏：内容自动填充，不会出现等高留白 */}
+          <div className="columns-1 xl:columns-2 gap-5">
             {categories.map((cat, idx) => {
               const list = notesByCategory.get(cat.id) || [];
               const collapsed = collapsedCats.has(cat.id);
               return (
+                <div key={cat.id} className="break-inside-avoid mb-5">
+                  <CategorySection
+                    category={cat} notes={list}
+                    colorIndex={idx}
+                    collapsed={collapsed}
+                    onToggleCollapse={() => toggleCollapse(cat.id)}
+                    onAddNote={() => newNote(cat.id)}
+                    onCategorySaved={loadCategories}
+                    onReorder={(newList) => handleReorder(cat.id, newList)}
+                    editingNoteId={editingId}
+                    onStartEdit={(id) => setEditingId(id)}
+                    onCancelEdit={cancelEdit}
+                    onSaveNote={saveNote}
+                    onDeleteNote={deleteNote}
+                    onDetectActions={detectActions}
+                  />
+                </div>
+              );
+            })}
+            {/* 未分类区 */}
+            {uncategorized.length > 0 && (
+              <div className="break-inside-avoid mb-5">
                 <CategorySection
-                  key={cat.id} category={cat} notes={list}
-                  colorIndex={idx}
-                  collapsed={collapsed}
-                  onToggleCollapse={() => toggleCollapse(cat.id)}
-                  onAddNote={() => newNote(cat.id)}
-                  onCategorySaved={loadCategories}
-                  onReorder={(newList) => handleReorder(cat.id, newList)}
+                  category={{ id: "__uncategorized__", label: "未分类", icon: "📂", sort_order: 9999 }}
+                  notes={uncategorized}
+                  collapsed={collapsedCats.has("__uncategorized__")}
+                  onToggleCollapse={() => toggleCollapse("__uncategorized__")}
+                  onAddNote={() => {}}
+                  onReorder={(newList) => handleReorder("__uncategorized__", newList)}
+                  hideAddNote
+                  hideEditCategory
                   editingNoteId={editingId}
                   onStartEdit={(id) => setEditingId(id)}
                   onCancelEdit={cancelEdit}
@@ -356,26 +380,7 @@ export default function HomePage() {
                   onDeleteNote={deleteNote}
                   onDetectActions={detectActions}
                 />
-              );
-            })}
-            {/* 未分类区 */}
-            {uncategorized.length > 0 && (
-              <CategorySection
-                category={{ id: "__uncategorized__", label: "未分类", icon: "📂", sort_order: 9999 }}
-                notes={uncategorized}
-                collapsed={collapsedCats.has("__uncategorized__")}
-                onToggleCollapse={() => toggleCollapse("__uncategorized__")}
-                onAddNote={() => {}}
-                onReorder={(newList) => handleReorder("__uncategorized__", newList)}
-                hideAddNote
-                hideEditCategory
-                editingNoteId={editingId}
-                onStartEdit={(id) => setEditingId(id)}
-                onCancelEdit={cancelEdit}
-                onSaveNote={saveNote}
-                onDeleteNote={deleteNote}
-                onDetectActions={detectActions}
-              />
+              </div>
             )}
           </div>
 
