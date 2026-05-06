@@ -314,65 +314,36 @@ export default function HomePage() {
   const uncategorized = notesByCategory.get("__uncategorized__") || [];
 
   return (
-    <div className="min-h-screen bg-gray-50/60">
-      {/* 顶部 Banner */}
-      <div className="bg-white border-b border-gray-100 px-8 py-5 mb-6">
-        <div className="max-w-[1400px] mx-auto flex items-center gap-4">
-          <div className="w-11 h-11 rounded-2xl bg-amber-100 flex items-center justify-center shrink-0">
-            <Greeting size={20} className="text-amber-600" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">{getGreeting().label} 👋</h1>
-            <p className="text-xs text-gray-400 mt-0.5">{formatDate(today)}</p>
-          </div>
+    <div className="p-6 max-w-[1400px] mx-auto">
+      {/* 顶部 */}
+      <div className="mb-6 flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <Greeting size={22} className="text-amber-500" />{getGreeting().label} 👋
+          </h1>
+          <p className="text-sm text-gray-400 mt-0.5">{formatDate(today)}</p>
         </div>
       </div>
 
-      <div className="px-8 pb-10 max-w-[1400px] mx-auto">
       {/* 笔记板块 — 两列网格 */}
       {loading ? (
-        <div className="flex items-center justify-center py-32 text-gray-400">
+        <div className="flex items-center justify-center py-20 text-gray-400">
           <Loader2 className="animate-spin mr-2" size={16} />加载中...
         </div>
       ) : (
         <>
-          {/* columns 分栏：内容自动填充，不会出现等高留白 */}
-          <div className="columns-1 xl:columns-2 gap-5">
-            {categories.map((cat, idx) => {
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+            {categories.map((cat) => {
               const list = notesByCategory.get(cat.id) || [];
               const collapsed = collapsedCats.has(cat.id);
               return (
-                <div key={cat.id} className="break-inside-avoid mb-5">
-                  <CategorySection
-                    category={cat} notes={list}
-                    colorIndex={idx}
-                    collapsed={collapsed}
-                    onToggleCollapse={() => toggleCollapse(cat.id)}
-                    onAddNote={() => newNote(cat.id)}
-                    onCategorySaved={loadCategories}
-                    onReorder={(newList) => handleReorder(cat.id, newList)}
-                    editingNoteId={editingId}
-                    onStartEdit={(id) => setEditingId(id)}
-                    onCancelEdit={cancelEdit}
-                    onSaveNote={saveNote}
-                    onDeleteNote={deleteNote}
-                    onDetectActions={detectActions}
-                  />
-                </div>
-              );
-            })}
-            {/* 未分类区 */}
-            {uncategorized.length > 0 && (
-              <div className="break-inside-avoid mb-5">
                 <CategorySection
-                  category={{ id: "__uncategorized__", label: "未分类", icon: "📂", sort_order: 9999 }}
-                  notes={uncategorized}
-                  collapsed={collapsedCats.has("__uncategorized__")}
-                  onToggleCollapse={() => toggleCollapse("__uncategorized__")}
-                  onAddNote={() => {}}
-                  onReorder={(newList) => handleReorder("__uncategorized__", newList)}
-                  hideAddNote
-                  hideEditCategory
+                  key={cat.id} category={cat} notes={list}
+                  collapsed={collapsed}
+                  onToggleCollapse={() => toggleCollapse(cat.id)}
+                  onAddNote={() => newNote(cat.id)}
+                  onCategorySaved={loadCategories}
+                  onReorder={(newList) => handleReorder(cat.id, newList)}
                   editingNoteId={editingId}
                   onStartEdit={(id) => setEditingId(id)}
                   onCancelEdit={cancelEdit}
@@ -380,18 +351,36 @@ export default function HomePage() {
                   onDeleteNote={deleteNote}
                   onDetectActions={detectActions}
                 />
-              </div>
+              );
+            })}
+            {/* 未分类区 */}
+            {uncategorized.length > 0 && (
+              <CategorySection
+                category={{ id: "__uncategorized__", label: "未分类", icon: "📂", sort_order: 9999 }}
+                notes={uncategorized}
+                collapsed={collapsedCats.has("__uncategorized__")}
+                onToggleCollapse={() => toggleCollapse("__uncategorized__")}
+                onAddNote={() => {}}
+                onReorder={(newList) => handleReorder("__uncategorized__", newList)}
+                hideAddNote
+                hideEditCategory
+                editingNoteId={editingId}
+                onStartEdit={(id) => setEditingId(id)}
+                onCancelEdit={cancelEdit}
+                onSaveNote={saveNote}
+                onDeleteNote={deleteNote}
+                onDetectActions={detectActions}
+              />
             )}
           </div>
 
           {/* 添加新板块 */}
           <button onClick={() => setShowAddCategory(true)}
-            className="mt-5 w-full py-3 text-sm border-2 border-dashed border-gray-200 text-gray-400 rounded-2xl hover:border-violet-300 hover:text-violet-500 hover:bg-white transition-all flex items-center justify-center gap-1.5">
+            className="mt-4 w-full py-2.5 text-sm border border-dashed border-gray-300 text-gray-400 rounded-xl hover:border-violet-400 hover:text-violet-600 hover:bg-violet-50/40 transition-colors flex items-center justify-center gap-1.5">
             <Plus size={14} />添加新板块
           </button>
         </>
       )}
-      </div>{/* end px-8 wrapper */}
 
       {/* AI Toast */}
       {showToast && pendingActions.length > 0 && (
@@ -420,23 +409,12 @@ export default function HomePage() {
   );
 }
 
-// 板块左侧彩边 + 渐变 header 颜色
-const CAT_COLORS = [
-  { border: "#7c3aed", bg: "rgba(124,58,237,0.06)" },   // violet
-  { border: "#0ea5e9", bg: "rgba(14,165,233,0.06)" },   // sky
-  { border: "#10b981", bg: "rgba(16,185,129,0.06)" },   // emerald
-  { border: "#f59e0b", bg: "rgba(245,158,11,0.06)" },   // amber
-  { border: "#ef4444", bg: "rgba(239,68,68,0.06)" },    // rose
-  { border: "#8b5cf6", bg: "rgba(139,92,246,0.06)" },   // purple
-];
-
 // ============ 板块区 ============
 function CategorySection({
-  category, notes, colorIndex, collapsed, onToggleCollapse, onAddNote, onCategorySaved, hideAddNote, hideEditCategory,
+  category, notes, collapsed, onToggleCollapse, onAddNote, onCategorySaved, hideAddNote, hideEditCategory,
   onReorder, editingNoteId, onStartEdit, onCancelEdit, onSaveNote, onDeleteNote, onDetectActions,
 }: {
   category: Category; notes: Note[];
-  colorIndex?: number;
   collapsed: boolean; onToggleCollapse: () => void;
   onAddNote: () => void; onCategorySaved?: () => void;
   hideAddNote?: boolean; hideEditCategory?: boolean;
@@ -452,7 +430,6 @@ function CategorySection({
   const [editLabel, setEditLabel] = useState(category.label);
   const [editIcon, setEditIcon] = useState(category.icon);
   const [saving, setSaving] = useState(false);
-  const accent = CAT_COLORS[(colorIndex ?? 0) % CAT_COLORS.length];
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -488,47 +465,45 @@ function CategorySection({
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-gray-100"
-      style={{ borderLeft: `4px solid ${accent.border}` }}>
+    <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
       {/* 板块头 */}
-      <div className="group px-4 py-3 flex items-center gap-2.5"
-        style={{ background: accent.bg }}>
-        <button onClick={onToggleCollapse} className="text-gray-400 hover:text-gray-600 transition-colors">
-          {collapsed ? <ChevronRight size={15} /> : <ChevronDown size={15} />}
+      <div className="group px-4 py-2.5 border-b border-gray-100 flex items-center gap-2 bg-gray-50/40">
+        <button onClick={onToggleCollapse} className="p-0.5 text-gray-400 hover:text-gray-700">
+          {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
         </button>
 
         {isEditingLabel ? (
+          /* 编辑模式 */
           <>
             <input value={editIcon} onChange={(e) => setEditIcon(e.target.value.slice(0, 4))}
-              className="w-8 text-base text-center border border-gray-200 rounded px-1 focus:outline-none focus:border-violet-400 bg-white" />
+              className="w-8 text-base text-center border border-gray-200 rounded px-1 focus:outline-none focus:border-violet-400" />
             <input value={editLabel} onChange={(e) => setEditLabel(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") saveLabel(); if (e.key === "Escape") setIsEditingLabel(false); }}
               autoFocus
-              className="flex-1 text-sm font-bold border-b-2 border-violet-400 focus:outline-none bg-transparent min-w-0" />
+              className="flex-1 text-sm font-bold border-b border-violet-400 focus:outline-none bg-transparent min-w-0" />
             <button onClick={saveLabel} disabled={saving}
-              className="px-2.5 py-1 text-[11px] bg-violet-600 text-white rounded-lg hover:bg-violet-700 disabled:opacity-50 shrink-0">
+              className="px-2 py-0.5 text-[11px] bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50 shrink-0">
               {saving ? <Loader2 size={10} className="animate-spin inline" /> : "保存"}
             </button>
             <button onClick={() => setIsEditingLabel(false)}
-              className="px-2.5 py-1 text-[11px] border border-gray-200 rounded-lg text-gray-600 hover:bg-white shrink-0">
+              className="px-2 py-0.5 text-[11px] border border-gray-200 rounded text-gray-600 hover:bg-gray-50 shrink-0">
               取消
             </button>
           </>
         ) : (
+          /* 展示模式 */
           <>
-            <span className="text-lg leading-none">{category.icon}</span>
-            <h2 className="font-semibold text-gray-800 text-sm">{category.label}</h2>
-            <span className="text-[11px] px-1.5 py-0.5 bg-white/80 text-gray-500 rounded-full border border-gray-200">
-              {notes.length}
-            </span>
+            <span className="text-base">{category.icon}</span>
+            <h2 className="font-bold text-gray-900 text-sm">{category.label}</h2>
+            <span className="text-[11px] text-gray-400">{notes.length} 条</span>
             {!hideEditCategory && (
-              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity ml-0.5">
+              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button onClick={() => { setEditLabel(category.label); setEditIcon(category.icon); setIsEditingLabel(true); }}
-                  className="p-1 rounded-md text-gray-400 hover:text-violet-700 hover:bg-white" title="编辑板块名">
+                  className="p-1 rounded text-gray-400 hover:text-violet-700 hover:bg-violet-50" title="编辑板块名">
                   <Edit2 size={11} />
                 </button>
                 <button onClick={deleteCategory}
-                  className="p-1 rounded-md text-gray-400 hover:text-rose-600 hover:bg-white" title="删除板块">
+                  className="p-1 rounded text-gray-400 hover:text-rose-600 hover:bg-rose-50" title="删除板块">
                   <Trash2 size={11} />
                 </button>
               </div>
@@ -539,7 +514,7 @@ function CategorySection({
         <div className="flex-1" />
         {!hideAddNote && !isEditingLabel && (
           <button onClick={onAddNote}
-            className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] bg-white border border-gray-200 text-gray-600 rounded-lg hover:bg-violet-50 hover:border-violet-300 hover:text-violet-700 shadow-sm transition-all shrink-0">
+            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] bg-violet-600 text-white rounded-md hover:bg-violet-700 shrink-0">
             <Plus size={11} />添加笔记
           </button>
         )}
@@ -549,16 +524,10 @@ function CategorySection({
       {!collapsed && (
         <div className="p-3 space-y-2">
           {notes.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-8 gap-2">
-              <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center">
-                <Plus size={14} className="text-gray-300" />
-              </div>
-              {!hideAddNote ? (
-                <button onClick={onAddNote} className="text-xs text-gray-400 hover:text-violet-600 transition-colors">
-                  点击添加第一条笔记
-                </button>
-              ) : (
-                <span className="text-xs text-gray-300">暂无笔记</span>
+            <div className="text-center py-4 text-xs text-gray-400">
+              暂无笔记
+              {!hideAddNote && (
+                <button onClick={onAddNote} className="ml-2 text-violet-600 hover:underline">+ 添加</button>
               )}
             </div>
           ) : (
@@ -741,42 +710,42 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
   }
 
   return (
-    <div className="group bg-gray-50/50 border border-gray-100 rounded-xl px-3.5 py-2.5 hover:bg-white hover:border-gray-200 hover:shadow-md transition-all cursor-default">
-      {/* 标题行 */}
-      {note.title && note.title !== "新笔记" && note.title !== "速记" && (
-        <div className="flex items-center gap-1.5 mb-1.5">
-          <FileText size={11} className="text-violet-400 shrink-0" />
-          <h3 className="font-semibold text-gray-800 text-sm truncate flex-1">{note.title}</h3>
-        </div>
-      )}
-      {/* 正文 + 圆点 */}
-      <div className="flex items-start gap-2">
-        <span className="w-1.5 h-1.5 rounded-full shrink-0 mt-[7px]" style={{ backgroundColor: dotColor }} />
-        <div className="prose prose-sm max-w-none text-gray-700 flex-1 min-w-0 leading-relaxed">
-          {renderMd(note.content_md)}
-        </div>
-      </div>
-      {/* 底部操作栏（hover 才显示） */}
-      <div className="flex items-center justify-between mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <div className="flex items-center gap-1">
+    <div className="group bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-violet-300 hover:shadow-sm transition-all">
+      <div className="flex items-start justify-between gap-2 mb-0.5">
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
           {/* 拖拽手柄 */}
           <span {...dragHandleProps}
-            className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 touch-none p-0.5">
-            <GripVertical size={12} />
+            className="shrink-0 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity touch-none">
+            <GripVertical size={13} />
           </span>
-          <span className="text-[10px] text-gray-300">
+          {note.title && note.title !== "新笔记" && note.title !== "速记" && (
+            <>
+              <FileText size={11} className="text-violet-500 shrink-0" />
+              <h3 className="font-bold text-gray-900 text-sm truncate">{note.title}</h3>
+            </>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-[10px] text-gray-400 whitespace-nowrap">
             {new Date(note.updated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
           </span>
+          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onClick={onStartEdit}
+              className="p-0.5 rounded text-gray-400 hover:text-violet-700 hover:bg-violet-50" title="编辑">
+              <Edit2 size={10} />
+            </button>
+            <button onClick={onDelete}
+              className="p-0.5 rounded text-gray-400 hover:text-rose-600 hover:bg-rose-50" title="删除">
+              <Trash2 size={10} />
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-1">
-          <button onClick={onStartEdit}
-            className="p-1 rounded-md text-gray-400 hover:text-violet-700 hover:bg-violet-50 transition-colors" title="编辑">
-            <Edit2 size={11} />
-          </button>
-          <button onClick={onDelete}
-            className="p-1 rounded-md text-gray-400 hover:text-rose-600 hover:bg-rose-50 transition-colors" title="删除">
-            <Trash2 size={11} />
-          </button>
+      </div>
+      {/* 圆点紧贴文字正前方 */}
+      <div className="flex items-start gap-1.5">
+        <span className="w-2 h-2 rounded-full shrink-0 mt-[5px]" style={{ backgroundColor: dotColor }} />
+        <div className="prose prose-sm max-w-none text-gray-700 flex-1 min-w-0">
+          {renderMd(note.content_md)}
         </div>
       </div>
     </div>
