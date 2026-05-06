@@ -2,7 +2,7 @@
 
 // 工作台首页 — 个人工作笔记（按板块分组）+ 我相关任务
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import {
   Plus, FileText, Loader2, X, Trash2, CheckCircle2, Sparkles, ListChecks,
@@ -101,13 +101,24 @@ function renderMd(md: string): React.ReactNode {
     return <p key={i} className="my-0.5 text-sm text-gray-700 leading-snug">{renderInline(line)}</p>;
   });
 }
+const COLOR_MAP: Record<string, string> = {
+  red: "text-red-600", orange: "text-orange-500",
+  green: "text-green-600", blue: "text-blue-600", purple: "text-purple-600",
+};
+
+// 笔记卡片左侧圆点颜色（按索引循环）
+const DOT_COLORS = ["#ef4444", "#f97316", "#22c55e", "#3b82f6", "#a855f7", "#eab308"];
+
 function renderInline(s: string): React.ReactNode {
-  const parts = s.split(/(\*\*[^*]+\*\*|@(?:TODO|FOLLOW|IDEA)\b|#[一-龥\w-]+)/g);
+  const parts = s.split(/(\*\*[^*]+\*\*|@(?:TODO|FOLLOW|IDEA)\b|#[一-龥\w-]+|==.+?==|\{(?:red|orange|green|blue|purple)\}[\s\S]+?\{\/(?:red|orange|green|blue|purple)\})/g);
   return parts.map((p, i) => {
     if (!p) return null;
     if (p.startsWith("**") && p.endsWith("**")) return <strong key={i} className="font-semibold text-gray-900">{p.slice(2, -2)}</strong>;
     if (p.startsWith("@")) return <span key={i} className="inline-block px-1.5 py-0 bg-amber-100 text-amber-800 text-[11px] rounded mx-0.5 font-medium">{p}</span>;
     if (p.startsWith("#") && !p.startsWith("# ")) return <span key={i} className="inline-block px-1.5 py-0 bg-violet-100 text-violet-700 text-[11px] rounded mx-0.5">{p}</span>;
+    if (p.startsWith("==") && p.endsWith("==")) return <mark key={i} className="bg-yellow-200 rounded px-0.5 not-italic">{p.slice(2, -2)}</mark>;
+    const cm = p.match(/^\{(red|orange|green|blue|purple)\}([\s\S]+)\{\/(?:red|orange|green|blue|purple)\}$/);
+    if (cm) return <span key={i} className={`font-medium ${COLOR_MAP[cm[1]]}`}>{cm[2]}</span>;
     return <span key={i}>{p}</span>;
   });
 }
@@ -509,8 +520,9 @@ function CategorySection({
           ) : (
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={notes.map((n) => n.id)} strategy={verticalListSortingStrategy}>
-                {notes.map((n) => (
+                {notes.map((n, idx) => (
                   <SortableNoteCard key={n.id} note={n}
+                    index={idx}
                     isEditing={editingNoteId === n.id}
                     onStartEdit={() => onStartEdit(n.id)}
                     onCancelEdit={onCancelEdit}
@@ -544,9 +556,12 @@ function SortableNoteCard(props: React.ComponentProps<typeof NoteCard>) {
   );
 }
 
+
+
 // ============ 笔记卡片 ============
-function NoteCard({ note, isEditing, onStartEdit, onCancelEdit, onSave, onDelete, onDetect, dragHandleProps }: {
+function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, onDelete, onDetect, dragHandleProps }: {
   note: Note;
+  index?: number;
   isEditing: boolean;
   onStartEdit: () => void;
   onCancelEdit: () => void;
@@ -559,6 +574,8 @@ function NoteCard({ note, isEditing, onStartEdit, onCancelEdit, onSave, onDelete
   const [content, setContent] = useState(note.content_md);
   const [saving, setSaving] = useState(false);
   const [detecting, setDetecting] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const dotColor = DOT_COLORS[(index ?? 0) % DOT_COLORS.length];
 
   useEffect(() => {
     if (isEditing) { setTitle(note.title); setContent(note.content_md); }
@@ -571,13 +588,48 @@ function NoteCard({ note, isEditing, onStartEdit, onCancelEdit, onSave, onDelete
     setDetecting(true); await onDetect(); setDetecting(false);
   }
 
+  function applyColor(color: string) {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const selected = content.slice(start, end);
+    const wrapped = color === "highlight"
+      ? `==${selected || "高亮文字"}==`
+      : `{${color}}${selected || "彩色文字"}{/${color}}`;
+    const next = content.slice(0, start) + wrapped + content.slice(end);
+    setContent(next);
+    const cursor = start + wrapped.length;
+    setTimeout(() => { ta.selectionStart = cursor; ta.selectionEnd = cursor; ta.focus(); }, 0);
+  }
+
+  const COLORS = [
+    { name: "red",    bg: "bg-red-500",    title: "红色" },
+    { name: "orange", bg: "bg-orange-400", title: "橙色" },
+    { name: "green",  bg: "bg-green-500",  title: "绿色" },
+    { name: "blue",   bg: "bg-blue-500",   title: "蓝色" },
+    { name: "purple", bg: "bg-purple-500", title: "紫色" },
+    { name: "highlight", bg: "bg-yellow-300", title: "黄色高亮" },
+  ];
+
   if (isEditing) {
     return (
       <div className="bg-violet-50/30 border-2 border-violet-300 rounded-lg p-3">
         <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
           placeholder="笔记标题（可留空）"
           className="w-full text-sm font-bold border-b border-gray-200 focus:border-violet-400 focus:outline-none py-1 mb-2 bg-transparent" />
-        <textarea value={content} onChange={(e) => setContent(e.target.value)}
+
+        {/* 颜色工具栏 */}
+        <div className="flex items-center gap-1 mb-1.5 px-1">
+          <span className="text-[10px] text-gray-400 mr-0.5">颜色标记：</span>
+          {COLORS.map((c) => (
+            <button key={c.name} onClick={() => applyColor(c.name)} title={c.title}
+              className={`w-4 h-4 rounded-full ${c.bg} hover:scale-125 transition-transform border border-white shadow-sm`} />
+          ))}
+          <span className="text-[10px] text-gray-400 ml-1">选中文字后点颜色</span>
+        </div>
+
+        <textarea ref={textareaRef} value={content} onChange={(e) => setContent(e.target.value)}
           placeholder={"开始记录...\n支持 Markdown：## 标题、- 列表、[ ] 待办、**加粗**、@TODO #标签"}
           className="w-full min-h-[180px] px-2 py-1.5 border border-gray-200 rounded text-sm font-mono resize-y focus:outline-none focus:border-violet-300 leading-relaxed bg-white" />
         <div className="mt-2 flex items-center gap-1.5">
@@ -603,7 +655,12 @@ function NoteCard({ note, isEditing, onStartEdit, onCancelEdit, onSave, onDelete
   }
 
   return (
-    <div className="group bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-violet-300 hover:shadow-sm transition-all">
+    <div className="group bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-violet-300 hover:shadow-sm transition-all flex gap-2.5">
+      {/* 左侧彩色圆点 */}
+      <div className="shrink-0 flex flex-col items-center pt-1.5">
+        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: dotColor }} />
+      </div>
+      <div className="flex-1 min-w-0">
       <div className="flex items-start justify-between gap-2 mb-0.5">
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
           {/* 拖拽手柄 */}
@@ -637,6 +694,7 @@ function NoteCard({ note, isEditing, onStartEdit, onCancelEdit, onSave, onDelete
       <div className="prose prose-sm max-w-none text-gray-700">
         {renderMd(note.content_md)}
       </div>
+      </div>{/* end flex-1 */}
     </div>
   );
 }
