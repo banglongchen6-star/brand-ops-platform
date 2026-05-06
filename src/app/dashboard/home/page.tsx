@@ -1,16 +1,23 @@
 "use client";
 
 // 工作台首页 — 个人工作笔记（按板块分组）+ 我相关任务
-// 板块（电商/达人/内容/渠道/客服）默认种 5 个，用户可改名/改图标/增删/排序
-// 任务区右侧 sticky
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import {
   Plus, FileText, Loader2, X, Trash2, CheckCircle2, Sparkles, ListChecks,
-  Edit2, Save, Sun, Moon, ChevronDown, ChevronRight, Settings2,
+  Edit2, Save, Sun, Moon, ChevronDown, ChevronRight, Settings2, GripVertical,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import {
+  DndContext, closestCenter, PointerSensor, KeyboardSensor,
+  useSensor, useSensors, DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove, SortableContext, sortableKeyboardCoordinates,
+  useSortable, verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 // ============ 类型 ============
 interface Category {
@@ -24,6 +31,7 @@ interface Note {
   title: string;
   content_md: string;
   category_id: string | null;
+  sort_order: number | null;
   updated_at: string;
   created_at: string;
 }
@@ -94,7 +102,7 @@ function renderMd(md: string): React.ReactNode {
   });
 }
 function renderInline(s: string): React.ReactNode {
-  const parts = s.split(/(\*\*[^*]+\*\*|@(?:TODO|FOLLOW|IDEA)\b|#[\u4e00-\u9fa5\w-]+)/g);
+  const parts = s.split(/(\*\*[^*]+\*\*|@(?:TODO|FOLLOW|IDEA)\b|#[一-龥\w-]+)/g);
   return parts.map((p, i) => {
     if (!p) return null;
     if (p.startsWith("**") && p.endsWith("**")) return <strong key={i} className="font-semibold text-gray-900">{p.slice(2, -2)}</strong>;
@@ -111,7 +119,6 @@ export default function HomePage() {
   const [tasks, setTasks] = useState<MyTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
-  // 新建但还没保存过的笔记 id（取消时直接删掉，避免空笔记残留）
   const [newlyCreatedId, setNewlyCreatedId] = useState<string | null>(null);
   const [collapsedCats, setCollapsedCats] = useState<Set<string>>(new Set());
   const [taskTab, setTaskTab] = useState<"today" | "upcoming" | "review" | "collab">("today");
@@ -149,13 +156,13 @@ export default function HomePage() {
   async function newNote(categoryId: string) {
     const r = await fetch("/api/notes", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "新笔记", category_id: categoryId }),
+      body: JSON.stringify({ title: "", category_id: categoryId }),
     });
     const j = await r.json();
     if (j.note) {
-      setNotes((prev) => [j.note, ...prev]);
+      setNotes((prev) => [...prev, j.note]);
       setEditingId(j.note.id);
-      setNewlyCreatedId(j.note.id); // 标记：此笔记是刚创建的，取消时直接删掉
+      setNewlyCreatedId(j.note.id);
       setCollapsedCats((prev) => { const n = new Set(prev); n.delete(categoryId); return n; });
     }
   }
@@ -168,11 +175,10 @@ export default function HomePage() {
     setNotes((prev) => prev.map((n) =>
       n.id === id ? { ...n, title, content_md, updated_at: new Date().toISOString() } : n));
     setEditingId(null);
-    if (newlyCreatedId === id) setNewlyCreatedId(null); // 已经保存了，去掉新建标记
+    if (newlyCreatedId === id) setNewlyCreatedId(null);
   }
 
   async function cancelEdit() {
-    // 取消时：如果是刚创建还没保存过的笔记，直接删除
     if (editingId && newlyCreatedId === editingId) {
       const id = editingId;
       await fetch(`/api/notes/${id}`, { method: "DELETE" });
@@ -188,6 +194,21 @@ export default function HomePage() {
     setNotes((prev) => prev.filter((n) => n.id !== id));
     if (editingId === id) setEditingId(null);
     if (newlyCreatedId === id) setNewlyCreatedId(null);
+  }
+
+  // 拖拽排序：更新本地状态 + 异步保存 sort_order
+  async function handleReorder(categoryId: string, newList: Note[]) {
+    setNotes((prev) => {
+      const others = prev.filter((n) => (n.category_id || "__uncategorized__") !== categoryId);
+      return [...others, ...newList];
+    });
+    // 异步批量保存，不阻塞 UI
+    newList.forEach((note, index) => {
+      fetch(`/api/notes/${note.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sort_order: index }),
+      });
+    });
   }
 
   async function detectActions(noteId: string) {
@@ -227,13 +248,23 @@ export default function HomePage() {
     });
   }
 
-  // 笔记按板块分组
+  // 笔记按板块分组，组内按 sort_order → created_at 升序排列
   const notesByCategory = useMemo(() => {
     const map = new Map<string, Note[]>();
     for (const n of notes) {
       const key = n.category_id || "__uncategorized__";
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(n);
+    }
+    for (const [key, list] of map) {
+      list.sort((a, b) => {
+        const ao = a.sort_order, bo = b.sort_order;
+        if (ao !== null && bo !== null) return ao - bo;
+        if (ao !== null) return -1;
+        if (bo !== null) return 1;
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      });
+      map.set(key, list);
     }
     return map;
   }, [notes]);
@@ -283,6 +314,7 @@ export default function HomePage() {
                     onToggleCollapse={() => toggleCollapse(cat.id)}
                     onAddNote={() => newNote(cat.id)}
                     onEditCategory={() => setEditingCategory(cat)}
+                    onReorder={(newList) => handleReorder(cat.id, newList)}
                     editingNoteId={editingId}
                     onStartEdit={(id) => setEditingId(id)}
                     onCancelEdit={cancelEdit}
@@ -292,7 +324,7 @@ export default function HomePage() {
                   />
                 );
               })}
-              {/* 未分类区（仅当有未分类笔记时显示） */}
+              {/* 未分类区 */}
               {uncategorized.length > 0 && (
                 <CategorySection
                   category={{ id: "__uncategorized__", label: "未分类", icon: "📂", sort_order: 9999 }}
@@ -300,6 +332,7 @@ export default function HomePage() {
                   collapsed={collapsedCats.has("__uncategorized__")}
                   onToggleCollapse={() => toggleCollapse("__uncategorized__")}
                   onAddNote={() => {}}
+                  onReorder={(newList) => handleReorder("__uncategorized__", newList)}
                   hideAddNote
                   hideEditCategory
                   editingNoteId={editingId}
@@ -353,12 +386,13 @@ export default function HomePage() {
 // ============ 板块区 ============
 function CategorySection({
   category, notes, collapsed, onToggleCollapse, onAddNote, onEditCategory, hideAddNote, hideEditCategory,
-  editingNoteId, onStartEdit, onCancelEdit, onSaveNote, onDeleteNote, onDetectActions,
+  onReorder, editingNoteId, onStartEdit, onCancelEdit, onSaveNote, onDeleteNote, onDetectActions,
 }: {
   category: Category; notes: Note[];
   collapsed: boolean; onToggleCollapse: () => void;
   onAddNote: () => void; onEditCategory?: () => void;
   hideAddNote?: boolean; hideEditCategory?: boolean;
+  onReorder: (newList: Note[]) => void;
   editingNoteId: string | null;
   onStartEdit: (id: string) => void;
   onCancelEdit: () => void;
@@ -366,6 +400,21 @@ function CategorySection({
   onDeleteNote: (id: string) => Promise<void>;
   onDetectActions: (id: string) => Promise<void>;
 }) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = notes.findIndex((n) => n.id === active.id);
+    const newIndex = notes.findIndex((n) => n.id === over.id);
+    if (oldIndex !== -1 && newIndex !== -1) {
+      onReorder(arrayMove(notes, oldIndex, newIndex));
+    }
+  }
+
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
       {/* 板块头 */}
@@ -403,16 +452,20 @@ function CategorySection({
               )}
             </div>
           ) : (
-            notes.map((n) => (
-              <NoteCard key={n.id} note={n}
-                isEditing={editingNoteId === n.id}
-                onStartEdit={() => onStartEdit(n.id)}
-                onCancelEdit={onCancelEdit}
-                onSave={(title, content) => onSaveNote(n.id, title, content)}
-                onDelete={() => onDeleteNote(n.id)}
-                onDetect={() => onDetectActions(n.id)}
-              />
-            ))
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={notes.map((n) => n.id)} strategy={verticalListSortingStrategy}>
+                {notes.map((n) => (
+                  <SortableNoteCard key={n.id} note={n}
+                    isEditing={editingNoteId === n.id}
+                    onStartEdit={() => onStartEdit(n.id)}
+                    onCancelEdit={onCancelEdit}
+                    onSave={(title, content) => onSaveNote(n.id, title, content)}
+                    onDelete={() => onDeleteNote(n.id)}
+                    onDetect={() => onDetectActions(n.id)}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
           )}
         </div>
       )}
@@ -420,8 +473,24 @@ function CategorySection({
   );
 }
 
+// ============ 可拖拽笔记卡片包装 ============
+function SortableNoteCard(props: React.ComponentProps<typeof NoteCard>) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.note.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  };
+  return (
+    <div ref={setNodeRef} style={style}>
+      <NoteCard {...props} dragHandleProps={{ ...attributes, ...listeners }} />
+    </div>
+  );
+}
+
 // ============ 笔记卡片 ============
-function NoteCard({ note, isEditing, onStartEdit, onCancelEdit, onSave, onDelete, onDetect }: {
+function NoteCard({ note, isEditing, onStartEdit, onCancelEdit, onSave, onDelete, onDetect, dragHandleProps }: {
   note: Note;
   isEditing: boolean;
   onStartEdit: () => void;
@@ -429,6 +498,7 @@ function NoteCard({ note, isEditing, onStartEdit, onCancelEdit, onSave, onDelete
   onSave: (title: string, content: string) => Promise<void>;
   onDelete: () => void;
   onDetect: () => Promise<void>;
+  dragHandleProps?: React.HTMLAttributes<HTMLElement>;
 }) {
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content_md);
@@ -450,7 +520,7 @@ function NoteCard({ note, isEditing, onStartEdit, onCancelEdit, onSave, onDelete
     return (
       <div className="bg-violet-50/30 border-2 border-violet-300 rounded-lg p-3">
         <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
-          placeholder="笔记标题"
+          placeholder="笔记标题（可留空）"
           className="w-full text-sm font-bold border-b border-gray-200 focus:border-violet-400 focus:outline-none py-1 mb-2 bg-transparent" />
         <textarea value={content} onChange={(e) => setContent(e.target.value)}
           placeholder={"开始记录...\n支持 Markdown：## 标题、- 列表、[ ] 待办、**加粗**、@TODO #标签"}
@@ -481,8 +551,17 @@ function NoteCard({ note, isEditing, onStartEdit, onCancelEdit, onSave, onDelete
     <div className="group bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-violet-300 hover:shadow-sm transition-all">
       <div className="flex items-start justify-between gap-2 mb-0.5">
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          <FileText size={11} className="text-violet-500 shrink-0" />
-          <h3 className="font-bold text-gray-900 text-sm truncate">{note.title || "未命名"}</h3>
+          {/* 拖拽手柄 */}
+          <span {...dragHandleProps}
+            className="shrink-0 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity touch-none">
+            <GripVertical size={13} />
+          </span>
+          {note.title && (
+            <>
+              <FileText size={11} className="text-violet-500 shrink-0" />
+              <h3 className="font-bold text-gray-900 text-sm truncate">{note.title}</h3>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           <span className="text-[10px] text-gray-400 whitespace-nowrap">

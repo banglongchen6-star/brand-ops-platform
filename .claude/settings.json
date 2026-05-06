@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /Users/Admin/管理后台/brand-ops-platform && git add -A && if ! git diff --cached --quiet; then git commit -m \"auto: Claude 修改\"; fi && vercel --prod --yes 2>&1 | tail -5",
+            "timeout": 120,
+            "statusMessage": "部署到 Vercel..."
+          }
+        ]
+      }
+    ]
+  }
+}

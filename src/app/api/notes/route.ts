@@ -13,10 +13,11 @@ export async function GET(req: Request) {
 
   const admin = getAdminClient();
   let q = admin.from("personal_notes")
-    .select("id, date, title, content_md, tags, category_id, is_archived, last_detect_len, last_detect_at, created_at, updated_at")
+    .select("id, date, title, content_md, tags, category_id, sort_order, is_archived, last_detect_len, last_detect_at, created_at, updated_at")
     .eq("owner_id", guard.userId)
     .eq("is_archived", false)
-    .order("updated_at", { ascending: false })
+    .order("sort_order", { ascending: true, nullsFirst: false })
+    .order("created_at", { ascending: true })
     .limit(limit);
   if (date) q = q.eq("date", date);
   if (categoryId) q = q.eq("category_id", categoryId);
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const date = String(body.date || new Date().toISOString().slice(0, 10));
-  const title = (body.title || "速记").toString().slice(0, 80);
+  const title = (body.title ?? "").toString().slice(0, 80);
   const categoryId: string | null = body.category_id || null;
 
   const admin = getAdminClient();
