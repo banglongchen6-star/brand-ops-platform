@@ -315,7 +315,7 @@ export default function HomePage() {
                     collapsed={collapsed}
                     onToggleCollapse={() => toggleCollapse(cat.id)}
                     onAddNote={() => newNote(cat.id)}
-                    onEditCategory={() => setEditingCategory(cat)}
+                    onCategorySaved={loadCategories}
                     onReorder={(newList) => handleReorder(cat.id, newList)}
                     editingNoteId={editingId}
                     onStartEdit={(id) => setEditingId(id)}
@@ -387,12 +387,12 @@ export default function HomePage() {
 
 // ============ 板块区 ============
 function CategorySection({
-  category, notes, collapsed, onToggleCollapse, onAddNote, onEditCategory, hideAddNote, hideEditCategory,
+  category, notes, collapsed, onToggleCollapse, onAddNote, onCategorySaved, hideAddNote, hideEditCategory,
   onReorder, editingNoteId, onStartEdit, onCancelEdit, onSaveNote, onDeleteNote, onDetectActions,
 }: {
   category: Category; notes: Note[];
   collapsed: boolean; onToggleCollapse: () => void;
-  onAddNote: () => void; onEditCategory?: () => void;
+  onAddNote: () => void; onCategorySaved?: () => void;
   hideAddNote?: boolean; hideEditCategory?: boolean;
   onReorder: (newList: Note[]) => void;
   editingNoteId: string | null;
@@ -402,6 +402,11 @@ function CategorySection({
   onDeleteNote: (id: string) => Promise<void>;
   onDetectActions: (id: string) => Promise<void>;
 }) {
+  const [isEditingLabel, setIsEditingLabel] = useState(false);
+  const [editLabel, setEditLabel] = useState(category.label);
+  const [editIcon, setEditIcon] = useState(category.icon);
+  const [saving, setSaving] = useState(false);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -417,6 +422,24 @@ function CategorySection({
     }
   }
 
+  async function saveLabel() {
+    if (!editLabel.trim()) return;
+    setSaving(true);
+    await fetch(`/api/note-categories/${category.id}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: editLabel.trim(), icon: editIcon }),
+    });
+    setSaving(false);
+    setIsEditingLabel(false);
+    onCategorySaved?.();
+  }
+
+  async function deleteCategory() {
+    if (!confirm(`删除「${category.label}」板块？板块下的笔记会移到「未分类」。`)) return;
+    await fetch(`/api/note-categories/${category.id}`, { method: "DELETE" });
+    onCategorySaved?.();
+  }
+
   return (
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
       {/* 板块头 */}
@@ -424,20 +447,50 @@ function CategorySection({
         <button onClick={onToggleCollapse} className="p-0.5 text-gray-400 hover:text-gray-700">
           {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
         </button>
-        <span className="text-base">{category.icon}</span>
-        <h2 className="font-bold text-gray-900 text-sm">{category.label}</h2>
-        <span className="text-[11px] text-gray-400">{notes.length} 条</span>
-        <div className="flex-1" />
-        {!hideEditCategory && onEditCategory && (
-          <button onClick={onEditCategory}
-            className="p-1 rounded text-gray-400 hover:text-gray-700 opacity-0 group-hover:opacity-100"
-            title="编辑板块">
-            <Settings2 size={12} />
-          </button>
+
+        {isEditingLabel ? (
+          /* 编辑模式 */
+          <>
+            <input value={editIcon} onChange={(e) => setEditIcon(e.target.value.slice(0, 4))}
+              className="w-8 text-base text-center border border-gray-200 rounded px-1 focus:outline-none focus:border-violet-400" />
+            <input value={editLabel} onChange={(e) => setEditLabel(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveLabel(); if (e.key === "Escape") setIsEditingLabel(false); }}
+              autoFocus
+              className="flex-1 text-sm font-bold border-b border-violet-400 focus:outline-none bg-transparent min-w-0" />
+            <button onClick={saveLabel} disabled={saving}
+              className="px-2 py-0.5 text-[11px] bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50 shrink-0">
+              {saving ? <Loader2 size={10} className="animate-spin inline" /> : "保存"}
+            </button>
+            <button onClick={() => setIsEditingLabel(false)}
+              className="px-2 py-0.5 text-[11px] border border-gray-200 rounded text-gray-600 hover:bg-gray-50 shrink-0">
+              取消
+            </button>
+          </>
+        ) : (
+          /* 展示模式 */
+          <>
+            <span className="text-base">{category.icon}</span>
+            <h2 className="font-bold text-gray-900 text-sm">{category.label}</h2>
+            <span className="text-[11px] text-gray-400">{notes.length} 条</span>
+            {!hideEditCategory && (
+              <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button onClick={() => { setEditLabel(category.label); setEditIcon(category.icon); setIsEditingLabel(true); }}
+                  className="p-1 rounded text-gray-400 hover:text-violet-700 hover:bg-violet-50" title="编辑板块名">
+                  <Edit2 size={11} />
+                </button>
+                <button onClick={deleteCategory}
+                  className="p-1 rounded text-gray-400 hover:text-rose-600 hover:bg-rose-50" title="删除板块">
+                  <Trash2 size={11} />
+                </button>
+              </div>
+            )}
+          </>
         )}
-        {!hideAddNote && (
+
+        <div className="flex-1" />
+        {!hideAddNote && !isEditingLabel && (
           <button onClick={onAddNote}
-            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] bg-violet-600 text-white rounded-md hover:bg-violet-700">
+            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] bg-violet-600 text-white rounded-md hover:bg-violet-700 shrink-0">
             <Plus size={11} />添加笔记
           </button>
         )}
