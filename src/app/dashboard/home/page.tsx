@@ -198,12 +198,14 @@ export default function HomePage() {
 
   // 拖拽排序：更新本地状态 + 异步保存 sort_order
   async function handleReorder(categoryId: string, newList: Note[]) {
+    // 立即给每条笔记赋新的 sort_order，让 useMemo 排序用新值而不是旧的 null
+    const updatedList = newList.map((note, index) => ({ ...note, sort_order: index }));
     setNotes((prev) => {
       const others = prev.filter((n) => (n.category_id || "__uncategorized__") !== categoryId);
-      return [...others, ...newList];
+      return [...others, ...updatedList];
     });
     // 异步批量保存，不阻塞 UI
-    newList.forEach((note, index) => {
+    updatedList.forEach((note, index) => {
       fetch(`/api/notes/${note.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sort_order: index }),
