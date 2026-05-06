@@ -70,7 +70,7 @@ function formatDate(s: string) {
 
 // 将旧的 {color} 语法转成 HTML（编辑器初始化用）
 const SYNTAX_COLOR_HEX: Record<string, string> = {
-  red: "#dc2626", orange: "#f97316", green: "#16a34a", blue: "#2563eb", purple: "#9333ea",
+  red: "#dc2626", orange: "#f97316", green: "#16a34a", blue: "#2563eb", purple: "#9333ea", black: "#111827",
 };
 function syntaxToHtml(text: string): string {
   return text
@@ -120,21 +120,21 @@ function renderMd(md: string): React.ReactNode {
 }
 const COLOR_MAP: Record<string, string> = {
   red: "text-red-600", orange: "text-orange-500",
-  green: "text-green-600", blue: "text-blue-600", purple: "text-purple-600",
+  green: "text-green-600", blue: "text-blue-600", purple: "text-purple-600", black: "text-gray-900",
 };
 
 // 笔记卡片左侧圆点颜色（按索引循环）
 const DOT_COLORS = ["#ef4444", "#f97316", "#22c55e", "#3b82f6", "#a855f7", "#eab308"];
 
 function renderInline(s: string): React.ReactNode {
-  const parts = s.split(/(\*\*[^*]+\*\*|@(?:TODO|FOLLOW|IDEA)\b|#[一-龥\w-]+|==.+?==|\{(?:red|orange|green|blue|purple)\}[\s\S]+?\{\/(?:red|orange|green|blue|purple)\})/g);
+  const parts = s.split(/(\*\*[^*]+\*\*|@(?:TODO|FOLLOW|IDEA)\b|#[一-龥\w-]+|==.+?==|\{(?:red|orange|green|blue|purple|black)\}[\s\S]+?\{\/(?:red|orange|green|blue|purple|black)\})/g);
   return parts.map((p, i) => {
     if (!p) return null;
     if (p.startsWith("**") && p.endsWith("**")) return <strong key={i} className="font-semibold text-gray-900">{p.slice(2, -2)}</strong>;
     if (p.startsWith("@")) return <span key={i} className="inline-block px-1.5 py-0 bg-amber-100 text-amber-800 text-[11px] rounded mx-0.5 font-medium">{p}</span>;
     if (p.startsWith("#") && !p.startsWith("# ")) return <span key={i} className="inline-block px-1.5 py-0 bg-violet-100 text-violet-700 text-[11px] rounded mx-0.5">{p}</span>;
     if (p.startsWith("==") && p.endsWith("==")) return <mark key={i} className="bg-yellow-200 rounded px-0.5 not-italic">{p.slice(2, -2)}</mark>;
-    const cm = p.match(/^\{(red|orange|green|blue|purple)\}([\s\S]+)\{\/(?:red|orange|green|blue|purple)\}$/);
+    const cm = p.match(/^\{(red|orange|green|blue|purple|black)\}([\s\S]+)\{\/(?:red|orange|green|blue|purple|black)\}$/);
     if (cm) return <span key={i} className={`font-medium ${COLOR_MAP[cm[1]]}`}>{cm[2]}</span>;
     return <span key={i}>{p}</span>;
   });
@@ -662,6 +662,7 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
     { name: "blue",   bg: "bg-blue-500",   title: "蓝色" },
     { name: "purple", bg: "bg-purple-500", title: "紫色" },
     { name: "highlight", bg: "bg-yellow-300", title: "黄色高亮" },
+    { name: "black",  bg: "bg-gray-900",   title: "黑色" },
   ];
 
   if (isEditing) {
