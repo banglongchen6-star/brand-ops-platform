@@ -68,9 +68,26 @@ function formatDate(s: string) {
   return `${d.getMonth() + 1} 月 ${d.getDate()} 日 周${w}`;
 }
 
+// 将旧的 {color} 语法转成 HTML（编辑器初始化用）
+const SYNTAX_COLOR_HEX: Record<string, string> = {
+  red: "#dc2626", orange: "#f97316", green: "#16a34a", blue: "#2563eb", purple: "#9333ea",
+};
+function syntaxToHtml(text: string): string {
+  return text
+    .replace(/\{(red|orange|green|blue|purple)\}([\s\S]+?)\{\/(?:red|orange|green|blue|purple)\}/g,
+      (_, c, t) => `<span style="color:${SYNTAX_COLOR_HEX[c]}">${t}</span>`)
+    .replace(/==([\s\S]+?)==/g,
+      (_, t) => `<span style="background-color:#fef08a;border-radius:2px;padding:0 1px">${t}</span>`)
+    .replace(/\n/g, "<br>");
+}
+
 // 简易 Markdown 渲染
 function renderMd(md: string): React.ReactNode {
   if (!md.trim()) return <span className="text-gray-300 italic text-xs">空内容</span>;
+  // 富文本内容（包含 HTML 标签）直接渲染
+  if (/<[a-z][\s\S]*>/i.test(md)) {
+    return <div dangerouslySetInnerHTML={{ __html: md }} className="text-sm leading-relaxed" />;
+  }
   return md.split(/\n+/).map((line, i) => {
     if (!line.trim()) return null;
     if (line.startsWith("### ")) return <h4 key={i} className="text-sm font-bold text-gray-900 mt-2 mb-0.5">{line.slice(4)}</h4>;
@@ -308,8 +325,8 @@ export default function HomePage() {
         </p>
       </div>
 
-      <div className="grid lg:grid-cols-[1fr_400px] gap-5">
-        {/* 左：笔记板块 */}
+      <div className="max-w-4xl">
+        {/* 笔记板块 */}
         <div className="space-y-3">
           {loading ? (
             <div className="flex items-center justify-center py-12 text-gray-400">
@@ -364,9 +381,6 @@ export default function HomePage() {
             </>
           )}
         </div>
-
-        {/* 右：任务区 */}
-        <TasksPanel tasks={tasks} taskGroups={taskGroups} tab={taskTab} setTab={setTaskTab} onChange={loadTasks} />
       </div>
 
       {/* AI Toast */}
@@ -574,33 +588,68 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
   const [content, setContent] = useState(note.content_md);
   const [saving, setSaving] = useState(false);
   const [detecting, setDetecting] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   const dotColor = DOT_COLORS[(index ?? 0) % DOT_COLORS.length];
 
   useEffect(() => {
-    if (isEditing) { setTitle(note.title); setContent(note.content_md); }
+    if (isEditing) {
+      setTitle(note.title);
+      setContent(note.content_md);
+      // 初始化富文本编辑器内容
+      setTimeout(() => {
+        if (editorRef.current) {
+          editorRef.current.innerHTML = syntaxToHtml(note.content_md);
+          // 光标移到末尾
+          const range = document.createRange();
+          const sel = window.getSelection();
+          range.selectNodeContents(editorRef.current);
+          range.collapse(false);
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+          editorRef.current.focus();
+        }
+      }, 0);
+    }
   }, [isEditing, note.title, note.content_md]);
 
+  function handleEditorInput() {
+    if (editorRef.current) setContent(editorRef.current.innerHTML);
+  }
+
   async function handleSave() {
-    setSaving(true); await onSave(title.slice(0, 80), content); setSaving(false);
+    // 取最新 innerHTML 保存
+    const html = editorRef.current?.innerHTML ?? content;
+    setSaving(true); await onSave(title.slice(0, 80), html); setSaving(false);
   }
   async function handleDetect() {
     setDetecting(true); await onDetect(); setDetecting(false);
   }
 
   function applyColor(color: string) {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const selected = content.slice(start, end);
-    const wrapped = color === "highlight"
-      ? `==${selected || "高亮文字"}==`
-      : `{${color}}${selected || "彩色文字"}{/${color}}`;
-    const next = content.slice(0, start) + wrapped + content.slice(end);
-    setContent(next);
-    const cursor = start + wrapped.length;
-    setTimeout(() => { ta.selectionStart = cursor; ta.selectionEnd = cursor; ta.focus(); }, 0);
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.focus();
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    const span = document.createElement("span");
+    if (color === "highlight") {
+      span.style.backgroundColor = "#fef08a";
+      span.style.borderRadius = "2px";
+      span.style.padding = "0 1px";
+    } else {
+      span.style.color = SYNTAX_COLOR_HEX[color] ?? "#000";
+    }
+    if (!range.collapsed) {
+      try { range.surroundContents(span); }
+      catch { const f = range.extractContents(); span.appendChild(f); range.insertNode(span); }
+    } else {
+      span.textContent = color === "highlight" ? "高亮文字" : "彩色文字";
+      range.insertNode(span);
+      range.selectNodeContents(span);
+      sel.removeAllRanges(); sel.addRange(range);
+    }
+    setContent(editor.innerHTML);
   }
 
   const COLORS = [
@@ -623,17 +672,24 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
         <div className="flex items-center gap-1 mb-1.5 px-1">
           <span className="text-[10px] text-gray-400 mr-0.5">颜色标记：</span>
           {COLORS.map((c) => (
-            <button key={c.name} onClick={() => applyColor(c.name)} title={c.title}
+            <button key={c.name} onMouseDown={(e) => { e.preventDefault(); applyColor(c.name); }} title={c.title}
               className={`w-4 h-4 rounded-full ${c.bg} hover:scale-125 transition-transform border border-white shadow-sm`} />
           ))}
           <span className="text-[10px] text-gray-400 ml-1">选中文字后点颜色</span>
         </div>
 
-        <textarea ref={textareaRef} value={content} onChange={(e) => setContent(e.target.value)}
-          placeholder={"开始记录...\n支持 Markdown：## 标题、- 列表、[ ] 待办、**加粗**、@TODO #标签"}
-          className="w-full min-h-[180px] px-2 py-1.5 border border-gray-200 rounded text-sm font-mono resize-y focus:outline-none focus:border-violet-300 leading-relaxed bg-white" />
+        {/* 富文本编辑区 */}
+        <div
+          ref={editorRef}
+          contentEditable
+          suppressContentEditableWarning
+          onInput={handleEditorInput}
+          data-placeholder="开始记录..."
+          className="w-full min-h-[180px] px-2 py-1.5 border border-gray-200 rounded text-sm leading-relaxed bg-white focus:outline-none focus:border-violet-300 empty:before:content-[attr(data-placeholder)] empty:before:text-gray-300"
+          style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+        />
         <div className="mt-2 flex items-center gap-1.5">
-          <span className="text-[10px] text-gray-400">{content.length} 字</span>
+          <span className="text-[10px] text-gray-400">{content.replace(/<[^>]+>/g, "").length} 字</span>
           <div className="flex-1" />
           <button onClick={handleDetect} disabled={detecting || !content.trim()}
             className="inline-flex items-center gap-1 px-2 py-1 text-[10px] border border-violet-200 text-violet-700 rounded hover:bg-violet-50 disabled:opacity-50">
