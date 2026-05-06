@@ -314,57 +314,36 @@ export default function HomePage() {
   const uncategorized = notesByCategory.get("__uncategorized__") || [];
 
   return (
-    <div className="p-6 max-w-[1600px] mx-auto">
+    <div className="p-6 max-w-[1400px] mx-auto">
       {/* 顶部 */}
-      <div className="mb-5">
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          <Greeting size={22} className="text-amber-500" />{getGreeting().label} 👋
-        </h1>
-        <p className="text-sm text-gray-500 mt-0.5">
-          {formatDate(today)} · 今日 {taskGroups.today.length} 项待办 · 待我审 {taskGroups.review.length}
-        </p>
+      <div className="mb-6 flex items-end justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <Greeting size={22} className="text-amber-500" />{getGreeting().label} 👋
+          </h1>
+          <p className="text-sm text-gray-400 mt-0.5">{formatDate(today)}</p>
+        </div>
       </div>
 
-      <div className="max-w-4xl">
-        {/* 笔记板块 */}
-        <div className="space-y-3">
-          {loading ? (
-            <div className="flex items-center justify-center py-12 text-gray-400">
-              <Loader2 className="animate-spin mr-2" size={16} />加载中...
-            </div>
-          ) : (
-            <>
-              {categories.map((cat) => {
-                const list = notesByCategory.get(cat.id) || [];
-                const collapsed = collapsedCats.has(cat.id);
-                return (
-                  <CategorySection
-                    key={cat.id} category={cat} notes={list}
-                    collapsed={collapsed}
-                    onToggleCollapse={() => toggleCollapse(cat.id)}
-                    onAddNote={() => newNote(cat.id)}
-                    onCategorySaved={loadCategories}
-                    onReorder={(newList) => handleReorder(cat.id, newList)}
-                    editingNoteId={editingId}
-                    onStartEdit={(id) => setEditingId(id)}
-                    onCancelEdit={cancelEdit}
-                    onSaveNote={saveNote}
-                    onDeleteNote={deleteNote}
-                    onDetectActions={detectActions}
-                  />
-                );
-              })}
-              {/* 未分类区 */}
-              {uncategorized.length > 0 && (
+      {/* 笔记板块 — 两列网格 */}
+      {loading ? (
+        <div className="flex items-center justify-center py-20 text-gray-400">
+          <Loader2 className="animate-spin mr-2" size={16} />加载中...
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+            {categories.map((cat) => {
+              const list = notesByCategory.get(cat.id) || [];
+              const collapsed = collapsedCats.has(cat.id);
+              return (
                 <CategorySection
-                  category={{ id: "__uncategorized__", label: "未分类", icon: "📂", sort_order: 9999 }}
-                  notes={uncategorized}
-                  collapsed={collapsedCats.has("__uncategorized__")}
-                  onToggleCollapse={() => toggleCollapse("__uncategorized__")}
-                  onAddNote={() => {}}
-                  onReorder={(newList) => handleReorder("__uncategorized__", newList)}
-                  hideAddNote
-                  hideEditCategory
+                  key={cat.id} category={cat} notes={list}
+                  collapsed={collapsed}
+                  onToggleCollapse={() => toggleCollapse(cat.id)}
+                  onAddNote={() => newNote(cat.id)}
+                  onCategorySaved={loadCategories}
+                  onReorder={(newList) => handleReorder(cat.id, newList)}
                   editingNoteId={editingId}
                   onStartEdit={(id) => setEditingId(id)}
                   onCancelEdit={cancelEdit}
@@ -372,16 +351,36 @@ export default function HomePage() {
                   onDeleteNote={deleteNote}
                   onDetectActions={detectActions}
                 />
-              )}
-              {/* 添加新板块 */}
-              <button onClick={() => setShowAddCategory(true)}
-                className="w-full py-2.5 text-sm border border-dashed border-gray-300 text-gray-500 rounded-xl hover:border-violet-400 hover:text-violet-600 hover:bg-violet-50/50 transition-colors flex items-center justify-center gap-1.5">
-                <Plus size={14} />添加新板块
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+              );
+            })}
+            {/* 未分类区 */}
+            {uncategorized.length > 0 && (
+              <CategorySection
+                category={{ id: "__uncategorized__", label: "未分类", icon: "📂", sort_order: 9999 }}
+                notes={uncategorized}
+                collapsed={collapsedCats.has("__uncategorized__")}
+                onToggleCollapse={() => toggleCollapse("__uncategorized__")}
+                onAddNote={() => {}}
+                onReorder={(newList) => handleReorder("__uncategorized__", newList)}
+                hideAddNote
+                hideEditCategory
+                editingNoteId={editingId}
+                onStartEdit={(id) => setEditingId(id)}
+                onCancelEdit={cancelEdit}
+                onSaveNote={saveNote}
+                onDeleteNote={deleteNote}
+                onDetectActions={detectActions}
+              />
+            )}
+          </div>
+
+          {/* 添加新板块 */}
+          <button onClick={() => setShowAddCategory(true)}
+            className="mt-4 w-full py-2.5 text-sm border border-dashed border-gray-300 text-gray-400 rounded-xl hover:border-violet-400 hover:text-violet-600 hover:bg-violet-50/40 transition-colors flex items-center justify-center gap-1.5">
+            <Plus size={14} />添加新板块
+          </button>
+        </>
+      )}
 
       {/* AI Toast */}
       {showToast && pendingActions.length > 0 && (
