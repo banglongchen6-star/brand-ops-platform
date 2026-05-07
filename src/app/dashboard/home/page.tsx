@@ -202,7 +202,7 @@ function syntaxToHtml(text: string): string {
   const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return segments.map((seg) => {
     let html = escape(seg.text).replace(/\n/g, "<br>");
-    if (seg.color) html = `<span style="color:${SYNTAX_COLOR_HEX[seg.color]}">${html}</span>`;
+    if (seg.color) html = `<span style="color:${SYNTAX_COLOR_HEX[seg.color]};font-weight:600">${html}</span>`;
     if (seg.highlight) html = `<span style="background-color:#fef08a;border-radius:2px;padding:0 1px">${html}</span>`;
     return html;
   }).join("");
@@ -295,13 +295,13 @@ function renderInline(s: string): React.ReactNode {
     const inner: React.ReactNode = parts.map((p, j) => {
       const k = `${i}-${j}`;
       if (!p) return null;
-      if (p.startsWith("**") && p.endsWith("**")) return <strong key={k} className="font-semibold text-gray-900">{p.slice(2, -2)}</strong>;
+      if (p.startsWith("**") && p.endsWith("**")) return <strong key={k} className={seg.color ? "font-semibold" : "font-semibold text-gray-900"}>{p.slice(2, -2)}</strong>;
       if (p.startsWith("@")) return <span key={k} className="inline-block px-1.5 py-0 bg-amber-100 text-amber-800 text-[11px] rounded mx-0.5 font-medium">{p}</span>;
       if (p.startsWith("#") && !p.startsWith("# ")) return <span key={k} className="inline-block px-1.5 py-0 bg-violet-100 text-violet-700 text-[11px] rounded mx-0.5">{p}</span>;
       return <span key={k}>{p}</span>;
     });
     let node: React.ReactNode = inner;
-    if (seg.color) node = <span key={`c${i}`} className={`font-medium ${COLOR_MAP[seg.color]}`}>{node}</span>;
+    if (seg.color) node = <span key={`c${i}`} className={`font-semibold ${COLOR_MAP[seg.color]}`}>{node}</span>;
     if (seg.highlight) node = <mark key={`h${i}`} className="bg-yellow-200 rounded px-0.5 not-italic">{node}</mark>;
     return node;
   });
