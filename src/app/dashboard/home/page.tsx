@@ -72,28 +72,44 @@ function formatDate(s: string) {
 const SYNTAX_COLOR_HEX: Record<string, string> = {
   red: "#dc2626", orange: "#f97316", green: "#16a34a", blue: "#2563eb", purple: "#9333ea", black: "#111827",
 };
-// 浏览器 rgb() 和 hex 值映射回颜色名（保存时用）
+// 浏览器 style.color 标准化后的 rgb() 格式 → 颜色名
 const COLOR_RGB_MAP: Record<string, string> = {
   "rgb(220, 38, 38)": "red", "rgb(249, 115, 22)": "orange", "rgb(22, 163, 74)": "green",
   "rgb(37, 99, 235)": "blue", "rgb(147, 51, 234)": "purple", "rgb(17, 24, 39)": "black",
-  "#dc2626": "red", "#f97316": "orange", "#16a34a": "green",
-  "#2563eb": "blue", "#9333ea": "purple", "#111827": "black",
+  "red": "red", "orange": "orange", "green": "green", "blue": "blue", "purple": "purple", "black": "black",
 };
-// 保存前：把编辑器 HTML 转回干净的 {color} 语法，防止每次保存叠加 HTML 碎片
+// 保存前：DOM 解析 HTML → 干净的 {color} 语法。同时清理破损数据（span 内的 <br>）
 function htmlToSyntax(html: string): string {
-  return html
-    .replace(/<span[^>]+style="[^"]*color:\s*([^;"\s]+)[^"]*"[^>]*>([\s\S]*?)<\/span>/gi,
-      (_, colorVal, text) => {
-        const name = COLOR_RGB_MAP[colorVal.trim()];
-        return name ? `{${name}}${text}{/${name}}` : text;
-      })
-    .replace(/<span[^>]+style="[^"]*background-color:[^"]*"[^>]*>([\s\S]*?)<\/span>/gi,
-      (_, t) => `==${t}==`)
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<div>/gi, "\n").replace(/<\/div>/gi, "")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
-    .trim();
+  if (typeof document === "undefined") return html;
+  const root = document.createElement("div");
+  root.innerHTML = html;
+
+  function walk(node: Node): string {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
+    if (node.nodeType !== Node.ELEMENT_NODE) return "";
+    const el = node as HTMLElement;
+    const tag = el.tagName.toLowerCase();
+    const inner = Array.from(el.childNodes).map(walk).join("");
+
+    if (tag === "br") return "\n";
+    if (tag === "div" || tag === "p") return inner + "\n";
+
+    if (tag === "span") {
+      // span 内换行不要保留（避免破损 span 把彩色文字拆散）
+      const cleanInner = inner.replace(/\n/g, "");
+      const bg = el.style.backgroundColor;
+      const fg = el.style.color;
+      if (bg && bg !== "transparent" && bg !== "rgba(0, 0, 0, 0)") return `==${cleanInner}==`;
+      if (fg) {
+        const name = COLOR_RGB_MAP[fg.trim()];
+        if (name) return `{${name}}${cleanInner}{/${name}}`;
+      }
+      return inner;
+    }
+    return inner;
+  }
+
+  return Array.from(root.childNodes).map(walk).join("").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function syntaxToHtml(text: string): string {
