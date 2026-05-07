@@ -668,10 +668,6 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
   if (isEditing) {
     return (
       <div className="bg-violet-50/30 border-2 border-violet-300 rounded-lg p-3">
-        <input type="text" value={title} onChange={(e) => setTitle(e.target.value)}
-          placeholder="笔记标题（可留空）"
-          className="w-full text-sm font-bold border-b border-gray-200 focus:border-violet-400 focus:outline-none py-1 mb-2 bg-transparent" />
-
         {/* 颜色工具栏 */}
         <div className="flex items-center gap-1 mb-1.5 px-1">
           <span className="text-[10px] text-gray-400 mr-0.5">颜色标记：</span>
