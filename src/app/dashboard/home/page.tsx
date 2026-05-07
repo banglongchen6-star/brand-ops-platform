@@ -72,9 +72,35 @@ function formatDate(s: string) {
 const SYNTAX_COLOR_HEX: Record<string, string> = {
   red: "#dc2626", orange: "#f97316", green: "#16a34a", blue: "#2563eb", purple: "#9333ea", black: "#111827",
 };
+// 浏览器 rgb() 和 hex 值映射回颜色名（保存时用）
+const COLOR_RGB_MAP: Record<string, string> = {
+  "rgb(220, 38, 38)": "red", "rgb(249, 115, 22)": "orange", "rgb(22, 163, 74)": "green",
+  "rgb(37, 99, 235)": "blue", "rgb(147, 51, 234)": "purple", "rgb(17, 24, 39)": "black",
+  "#dc2626": "red", "#f97316": "orange", "#16a34a": "green",
+  "#2563eb": "blue", "#9333ea": "purple", "#111827": "black",
+};
+// 保存前：把编辑器 HTML 转回干净的 {color} 语法，防止每次保存叠加 HTML 碎片
+function htmlToSyntax(html: string): string {
+  return html
+    .replace(/<span[^>]+style="[^"]*color:\s*([^;"\s]+)[^"]*"[^>]*>([\s\S]*?)<\/span>/gi,
+      (_, colorVal, text) => {
+        const name = COLOR_RGB_MAP[colorVal.trim()];
+        return name ? `{${name}}${text}{/${name}}` : text;
+      })
+    .replace(/<span[^>]+style="[^"]*background-color:[^"]*"[^>]*>([\s\S]*?)<\/span>/gi,
+      (_, t) => `==${t}==`)
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<div>/gi, "\n").replace(/<\/div>/gi, "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&")
+    .trim();
+}
+
 function syntaxToHtml(text: string): string {
+  // 如果已经是 HTML，直接返回（避免重复处理）
+  if (/<[a-z][\s\S]*>/i.test(text)) return text;
   return text
-    .replace(/\{(red|orange|green|blue|purple)\}([\s\S]+?)\{\/(?:red|orange|green|blue|purple)\}/g,
+    .replace(/\{(red|orange|green|blue|purple|black)\}([\s\S]+?)\{\/(?:red|orange|green|blue|purple|black)\}/g,
       (_, c, t) => `<span style="color:${SYNTAX_COLOR_HEX[c]}">${t}</span>`)
     .replace(/==([\s\S]+?)==/g,
       (_, t) => `<span style="background-color:#fef08a;border-radius:2px;padding:0 1px">${t}</span>`)
@@ -626,9 +652,10 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
   }
 
   async function handleSave() {
-    // 取最新 innerHTML 保存
-    const html = editorRef.current?.innerHTML ?? content;
-    setSaving(true); await onSave(title.slice(0, 80), html); setSaving(false);
+    // 取 innerHTML → 转回 {color} 语法再保存，防止 HTML 碎片累积
+    const rawHtml = editorRef.current?.innerHTML ?? content;
+    const clean = htmlToSyntax(rawHtml);
+    setSaving(true); await onSave(title.slice(0, 80), clean); setSaving(false);
   }
   async function handleDetect() {
     setDetecting(true); await onDetect(); setDetecting(false);
