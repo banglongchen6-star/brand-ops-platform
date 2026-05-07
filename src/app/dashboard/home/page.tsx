@@ -109,37 +109,43 @@ function htmlToSyntax(html: string): string {
     return inner;
   }
 
-  let raw = Array.from(root.childNodes).map(walk).join("");
+  const raw = Array.from(root.childNodes).map(walk).join("");
 
-  // 清理破损数据 step 1：合并连续的单字符行（"《\n月\n任\n务\n》" → "《月任务》"）
+  // 清理破损数据 step 1：检测"≥5 行连续短行（每行 ≤3 字符）"的破损段落，合并成一行
   const lines = raw.split("\n");
   const merged: string[] = [];
   let i = 0;
   while (i < lines.length) {
-    const trimmed = lines[i].trim();
-    // 单字符（中英文/标点）的连续行视为破损，合并
-    if (trimmed.length === 1 && /\S/.test(trimmed)) {
-      let buf = lines[i];
-      let j = i + 1;
-      while (j < lines.length) {
-        const t = lines[j].trim();
-        if (t.length === 1 && /\S/.test(t)) { buf += lines[j]; j++; }
-        else break;
-      }
-      merged.push(buf);
-      i = j;
+    // 向前扫描连续短行
+    let runEnd = i;
+    while (runEnd < lines.length) {
+      const t = lines[runEnd].trim();
+      if (t.length > 0 && t.length <= 3) runEnd++;
+      else break;
+    }
+    if (runEnd - i >= 5) {
+      // 5 行以上连续短行 → 视为破损数据合并
+      merged.push(lines.slice(i, runEnd).join(""));
+      i = runEnd;
     } else {
       merged.push(lines[i]);
       i++;
     }
   }
 
-  // 清理破损数据 step 2：去除相邻重复行（保存时累积的副本）
+  // 清理破损数据 step 2：按"去掉颜色语法后的纯文本"去重相邻行
+  const stripSyntax = (s: string) => s
+    .replace(/\{(red|orange|green|blue|purple|black)\}([\s\S]+?)\{\/(?:red|orange|green|blue|purple|black)\}/g, "$2")
+    .replace(/==([\s\S]+?)==/g, "$1")
+    .trim();
+
   const deduped: string[] = [];
   for (let k = 0; k < merged.length; k++) {
-    if (k === 0 || merged[k].trim() !== merged[k - 1].trim() || !merged[k].trim()) {
-      deduped.push(merged[k]);
-    }
+    const cur = stripSyntax(merged[k]);
+    const prev = k > 0 ? stripSyntax(merged[k - 1]) : "";
+    // 与上一行纯文本相同就跳过（保留有颜色那条）
+    if (k > 0 && cur && cur === prev) continue;
+    deduped.push(merged[k]);
   }
 
   return deduped.join("\n").replace(/\n{3,}/g, "\n\n").trim();
