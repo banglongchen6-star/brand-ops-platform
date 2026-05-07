@@ -128,7 +128,7 @@ function renderMd(md: string): React.ReactNode {
   if (!md.trim()) return <span className="text-gray-300 italic text-xs">空内容</span>;
   // 富文本内容（包含 HTML 标签）直接渲染
   if (/<[a-z][\s\S]*>/i.test(md)) {
-    return <div dangerouslySetInnerHTML={{ __html: md }} className="text-sm leading-relaxed" />;
+    return <div dangerouslySetInnerHTML={{ __html: md }} className="text-sm leading-relaxed break-words [overflow-wrap:anywhere]" />;
   }
   return md.split(/\n+/).map((line, i) => {
     if (!line.trim()) return null;
@@ -760,7 +760,7 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
   }
 
   return (
-    <div className="group bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-violet-300 hover:shadow-sm transition-all">
+    <div className="group bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-violet-300 hover:shadow-sm transition-all overflow-hidden">
       <div className="flex items-start justify-between gap-2 mb-0.5">
         <div className="flex items-center gap-1.5 flex-1 min-w-0">
           {/* 拖拽手柄 */}
@@ -794,7 +794,7 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
       {/* 圆点紧贴文字正前方 */}
       <div className="flex items-start gap-1.5">
         <span className="w-2 h-2 rounded-full shrink-0 mt-[5px]" style={{ backgroundColor: dotColor }} />
-        <div className="prose prose-sm max-w-none text-gray-700 flex-1 min-w-0">
+        <div className="prose prose-sm max-w-none text-gray-700 flex-1 min-w-0 break-words [overflow-wrap:anywhere]">
           {renderMd(note.content_md)}
         </div>
       </div>
