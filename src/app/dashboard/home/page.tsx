@@ -78,7 +78,7 @@ const COLOR_RGB_MAP: Record<string, string> = {
   "rgb(37, 99, 235)": "blue", "rgb(147, 51, 234)": "purple", "rgb(17, 24, 39)": "black",
   "red": "red", "orange": "orange", "green": "green", "blue": "blue", "purple": "purple", "black": "black",
 };
-// 保存前：DOM 解析 HTML → 干净的 {color} 语法。同时清理破损数据（span 内的 <br>）
+// 保存前：DOM 解析 HTML → 干净的 {color} 语法。同时清理破损数据
 function htmlToSyntax(html: string): string {
   if (typeof document === "undefined") return html;
   const root = document.createElement("div");
@@ -109,7 +109,40 @@ function htmlToSyntax(html: string): string {
     return inner;
   }
 
-  return Array.from(root.childNodes).map(walk).join("").replace(/\n{3,}/g, "\n\n").trim();
+  let raw = Array.from(root.childNodes).map(walk).join("");
+
+  // 清理破损数据 step 1：合并连续的单字符行（"《\n月\n任\n务\n》" → "《月任务》"）
+  const lines = raw.split("\n");
+  const merged: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const trimmed = lines[i].trim();
+    // 单字符（中英文/标点）的连续行视为破损，合并
+    if (trimmed.length === 1 && /\S/.test(trimmed)) {
+      let buf = lines[i];
+      let j = i + 1;
+      while (j < lines.length) {
+        const t = lines[j].trim();
+        if (t.length === 1 && /\S/.test(t)) { buf += lines[j]; j++; }
+        else break;
+      }
+      merged.push(buf);
+      i = j;
+    } else {
+      merged.push(lines[i]);
+      i++;
+    }
+  }
+
+  // 清理破损数据 step 2：去除相邻重复行（保存时累积的副本）
+  const deduped: string[] = [];
+  for (let k = 0; k < merged.length; k++) {
+    if (k === 0 || merged[k].trim() !== merged[k - 1].trim() || !merged[k].trim()) {
+      deduped.push(merged[k]);
+    }
+  }
+
+  return deduped.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function syntaxToHtml(text: string): string {
