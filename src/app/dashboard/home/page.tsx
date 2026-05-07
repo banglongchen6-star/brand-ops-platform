@@ -84,6 +84,24 @@ function htmlToSyntax(html: string): string {
   const root = document.createElement("div");
   root.innerHTML = html;
 
+  // 扁平化嵌套的颜色/高亮 span：保留最内层颜色，剥掉外层冗余包裹
+  const flattenColorSpans = (node: Node) => {
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    const el = node as HTMLElement;
+    Array.from(el.childNodes).forEach(flattenColorSpans);
+    if (el.tagName === "SPAN" && (el.style.color || el.style.backgroundColor)) {
+      // 如果子孙里有同类颜色 span，外层这个就是冗余的，剥掉
+      const innerColored = el.querySelector('span[style*="color"], span[style*="background-color"]');
+      if (innerColored) {
+        const parent = el.parentNode;
+        if (!parent) return;
+        while (el.firstChild) parent.insertBefore(el.firstChild, el);
+        parent.removeChild(el);
+      }
+    }
+  };
+  Array.from(root.childNodes).forEach(flattenColorSpans);
+
   function walk(node: Node): string {
     if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
     if (node.nodeType !== Node.ELEMENT_NODE) return "";
@@ -179,12 +197,15 @@ function htmlToSyntax(html: string): string {
 function syntaxToHtml(text: string): string {
   // 如果已经是 HTML，直接返回（避免重复处理）
   if (/<[a-z][\s\S]*>/i.test(text)) return text;
-  return text
-    .replace(/\{(red|orange|green|blue|purple|black)\}([\s\S]+?)\{\/(?:red|orange|green|blue|purple|black)\}/g,
-      (_, c, t) => `<span style="color:${SYNTAX_COLOR_HEX[c]}">${t}</span>`)
-    .replace(/==([\s\S]+?)==/g,
-      (_, t) => `<span style="background-color:#fef08a;border-radius:2px;padding:0 1px">${t}</span>`)
-    .replace(/\n/g, "<br>");
+  // 用栈解析颜色/高亮，正确处理嵌套和孤立标记。最内层颜色生效，无效闭合标记被丢弃。
+  const segments = parseColorSegments(text);
+  const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return segments.map((seg) => {
+    let html = escape(seg.text).replace(/\n/g, "<br>");
+    if (seg.color) html = `<span style="color:${SYNTAX_COLOR_HEX[seg.color]}">${html}</span>`;
+    if (seg.highlight) html = `<span style="background-color:#fef08a;border-radius:2px;padding:0 1px">${html}</span>`;
+    return html;
+  }).join("");
 }
 
 // 简易 Markdown 渲染
@@ -232,17 +253,57 @@ const COLOR_MAP: Record<string, string> = {
 // 笔记卡片左侧圆点颜色（按索引循环）
 const DOT_COLORS = ["#ef4444", "#f97316", "#22c55e", "#3b82f6", "#a855f7", "#eab308"];
 
+// 用栈解析颜色/高亮标记，正确处理嵌套（{red}{blue}文字{/blue}{/red}）和孤立的标记
+function parseColorSegments(s: string): Array<{ text: string; color: string | null; highlight: boolean }> {
+  const out: Array<{ text: string; color: string | null; highlight: boolean }> = [];
+  const colorStack: string[] = [];
+  let highlight = false;
+  const re = /\{(red|orange|green|blue|purple|black)\}|\{\/(red|orange|green|blue|purple|black)\}|==/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(s)) !== null) {
+    if (m.index > last) {
+      out.push({
+        text: s.slice(last, m.index),
+        color: colorStack.length > 0 ? colorStack[colorStack.length - 1] : null,
+        highlight,
+      });
+    }
+    if (m[1]) colorStack.push(m[1]);
+    else if (m[2]) {
+      const idx = colorStack.lastIndexOf(m[2]);
+      if (idx >= 0) colorStack.splice(idx, 1);
+    } else highlight = !highlight;
+    last = m.index + m[0].length;
+  }
+  if (last < s.length) {
+    out.push({
+      text: s.slice(last),
+      color: colorStack.length > 0 ? colorStack[colorStack.length - 1] : null,
+      highlight,
+    });
+  }
+  return out;
+}
+
 function renderInline(s: string): React.ReactNode {
-  const parts = s.split(/(\*\*[^*]+\*\*|@(?:TODO|FOLLOW|IDEA)\b|#[一-龥\w-]+|==.+?==|\{(?:red|orange|green|blue|purple|black)\}[\s\S]+?\{\/(?:red|orange|green|blue|purple|black)\})/g);
-  return parts.map((p, i) => {
-    if (!p) return null;
-    if (p.startsWith("**") && p.endsWith("**")) return <strong key={i} className="font-semibold text-gray-900">{p.slice(2, -2)}</strong>;
-    if (p.startsWith("@")) return <span key={i} className="inline-block px-1.5 py-0 bg-amber-100 text-amber-800 text-[11px] rounded mx-0.5 font-medium">{p}</span>;
-    if (p.startsWith("#") && !p.startsWith("# ")) return <span key={i} className="inline-block px-1.5 py-0 bg-violet-100 text-violet-700 text-[11px] rounded mx-0.5">{p}</span>;
-    if (p.startsWith("==") && p.endsWith("==")) return <mark key={i} className="bg-yellow-200 rounded px-0.5 not-italic">{p.slice(2, -2)}</mark>;
-    const cm = p.match(/^\{(red|orange|green|blue|purple|black)\}([\s\S]+)\{\/(?:red|orange|green|blue|purple|black)\}$/);
-    if (cm) return <span key={i} className={`font-medium ${COLOR_MAP[cm[1]]}`}>{cm[2]}</span>;
-    return <span key={i}>{p}</span>;
+  const segments = parseColorSegments(s);
+  return segments.map((seg, i) => {
+    if (!seg.text) return null;
+    // 在彩色段内继续处理 **bold** / @TODO / #tag
+    const parts = seg.text.split(/(\*\*[^*]+\*\*|@(?:TODO|FOLLOW|IDEA)\b|#[一-龥\w-]+)/g);
+    const inner: React.ReactNode = parts.map((p, j) => {
+      const k = `${i}-${j}`;
+      if (!p) return null;
+      if (p.startsWith("**") && p.endsWith("**")) return <strong key={k} className="font-semibold text-gray-900">{p.slice(2, -2)}</strong>;
+      if (p.startsWith("@")) return <span key={k} className="inline-block px-1.5 py-0 bg-amber-100 text-amber-800 text-[11px] rounded mx-0.5 font-medium">{p}</span>;
+      if (p.startsWith("#") && !p.startsWith("# ")) return <span key={k} className="inline-block px-1.5 py-0 bg-violet-100 text-violet-700 text-[11px] rounded mx-0.5">{p}</span>;
+      return <span key={k}>{p}</span>;
+    });
+    let node: React.ReactNode = inner;
+    if (seg.color) node = <span key={`c${i}`} className={`font-medium ${COLOR_MAP[seg.color]}`}>{node}</span>;
+    if (seg.highlight) node = <mark key={`h${i}`} className="bg-yellow-200 rounded px-0.5 not-italic">{node}</mark>;
+    return node;
   });
 }
 
@@ -538,7 +599,6 @@ function CategorySection({
 }) {
   const [isEditingLabel, setIsEditingLabel] = useState(false);
   const [editLabel, setEditLabel] = useState(category.label);
-  const [editIcon, setEditIcon] = useState(category.icon);
   const [saving, setSaving] = useState(false);
 
   const sensors = useSensors(
@@ -561,7 +621,7 @@ function CategorySection({
     setSaving(true);
     await fetch(`/api/note-categories/${category.id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label: editLabel.trim(), icon: editIcon }),
+      body: JSON.stringify({ label: editLabel.trim() }),
     });
     setSaving(false);
     setIsEditingLabel(false);
@@ -585,8 +645,6 @@ function CategorySection({
         {isEditingLabel ? (
           /* 编辑模式 */
           <>
-            <input value={editIcon} onChange={(e) => setEditIcon(e.target.value.slice(0, 4))}
-              className="w-8 text-base text-center border border-gray-200 rounded px-1 focus:outline-none focus:border-violet-400" />
             <input value={editLabel} onChange={(e) => setEditLabel(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") saveLabel(); if (e.key === "Escape") setIsEditingLabel(false); }}
               autoFocus
@@ -603,12 +661,11 @@ function CategorySection({
         ) : (
           /* 展示模式 */
           <>
-            <span className="text-base">{category.icon}</span>
             <h2 className="font-bold text-gray-900 text-sm">{category.label}</h2>
             <span className="text-[11px] text-gray-400">{notes.length} 条</span>
             {!hideEditCategory && (
               <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button onClick={() => { setEditLabel(category.label); setEditIcon(category.icon); setIsEditingLabel(true); }}
+                <button onClick={() => { setEditLabel(category.label); setIsEditingLabel(true); }}
                   className="p-1 rounded text-gray-400 hover:text-violet-700 hover:bg-violet-50" title="编辑板块名">
                   <Edit2 size={11} />
                 </button>
@@ -748,18 +805,39 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return;
     const range = sel.getRangeAt(0);
-    const span = document.createElement("span");
-    if (color === "highlight") {
-      span.style.backgroundColor = "#fef08a";
-      span.style.borderRadius = "2px";
-      span.style.padding = "0 1px";
-    } else {
-      span.style.color = SYNTAX_COLOR_HEX[color] ?? "#000";
-    }
+    const makeSpan = () => {
+      const span = document.createElement("span");
+      if (color === "highlight") {
+        span.style.backgroundColor = "#fef08a";
+        span.style.borderRadius = "2px";
+        span.style.padding = "0 1px";
+      } else {
+        span.style.color = SYNTAX_COLOR_HEX[color] ?? "#000";
+      }
+      return span;
+    };
     if (!range.collapsed) {
-      try { range.surroundContents(span); }
-      catch { const f = range.extractContents(); span.appendChild(f); range.insertNode(span); }
+      // 抽出选区内容，先剥掉已有的颜色/高亮 span，再用新颜色包一次，避免嵌套累积
+      const fragment = range.extractContents();
+      const unwrap = (node: Node) => {
+        if (node.nodeType !== Node.ELEMENT_NODE) return;
+        const el = node as HTMLElement;
+        Array.from(el.childNodes).forEach(unwrap);
+        if (el.tagName === "SPAN" && (el.style.color || el.style.backgroundColor)) {
+          const parent = el.parentNode;
+          if (!parent) return;
+          while (el.firstChild) parent.insertBefore(el.firstChild, el);
+          parent.removeChild(el);
+        }
+      };
+      Array.from(fragment.childNodes).forEach(unwrap);
+      const span = makeSpan();
+      span.appendChild(fragment);
+      range.insertNode(span);
+      range.selectNodeContents(span);
+      sel.removeAllRanges(); sel.addRange(range);
     } else {
+      const span = makeSpan();
       span.textContent = color === "highlight" ? "高亮文字" : "彩色文字";
       range.insertNode(span);
       range.selectNodeContents(span);
@@ -780,7 +858,8 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
 
   if (isEditing) {
     return (
-      <div className="bg-violet-50/30 border-2 border-violet-300 rounded-lg p-3">
+      // key="edit" / key="view" 防止 React 把 contentEditable div 复用为静态视图，遗留用户输入的文本节点
+      <div key="edit" className="bg-violet-50/30 border-2 border-violet-300 rounded-lg p-3">
         {/* 颜色工具栏 */}
         <div className="flex items-center gap-1 mb-1.5 px-1">
           <span className="text-[10px] text-gray-400 mr-0.5">颜色标记：</span>
@@ -824,43 +903,42 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
   }
 
   return (
-    <div className="group bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-violet-300 hover:shadow-sm transition-all overflow-hidden">
-      <div className="flex items-start justify-between gap-2 mb-0.5">
-        <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          {/* 拖拽手柄 */}
-          <span {...dragHandleProps}
-            className="shrink-0 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity touch-none">
-            <GripVertical size={13} />
-          </span>
+    // 单行布局：[拖拽柄][圆点][标题?+正文][时间+编辑+删除]，去掉空白标题栏
+    <div key="view" className="group bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-violet-300 hover:shadow-sm transition-all overflow-hidden">
+      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-start gap-1.5">
+        {/* 序号（拖拽排序后自动更新） */}
+        <span
+          className="text-sm font-bold tabular-nums leading-snug whitespace-nowrap"
+          style={{ color: dotColor }}
+        >
+          {(index ?? 0) + 1}.
+        </span>
+        {/* 标题（可选）+ 正文 */}
+        <div className="text-gray-700 break-words [overflow-wrap:anywhere] min-w-0">
           {note.title && note.title !== "新笔记" && note.title !== "速记" && (
-            <>
+            <h3 className="font-bold text-gray-900 text-sm flex items-center gap-1 mb-0.5">
               <FileText size={11} className="text-violet-500 shrink-0" />
-              <h3 className="font-bold text-gray-900 text-sm truncate">{note.title}</h3>
-            </>
+              <span className="truncate">{note.title}</span>
+            </h3>
           )}
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <span className="text-[10px] text-gray-400 whitespace-nowrap">
-            {new Date(note.updated_at).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}
-          </span>
-          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button onClick={onStartEdit}
-              className="p-0.5 rounded text-gray-400 hover:text-violet-700 hover:bg-violet-50" title="编辑">
-              <Edit2 size={10} />
-            </button>
-            <button onClick={onDelete}
-              className="p-0.5 rounded text-gray-400 hover:text-rose-600 hover:bg-rose-50" title="删除">
-              <Trash2 size={10} />
-            </button>
-          </div>
-        </div>
-      </div>
-      {/* 圆点紧贴文字正前方 */}
-      <div className="flex items-start gap-1.5">
-        <span className="w-2 h-2 rounded-full shrink-0 mt-[5px]" style={{ backgroundColor: dotColor }} />
-        <div className="prose prose-sm max-w-none text-gray-700 flex-1 min-w-0 break-words [overflow-wrap:anywhere]">
           {renderMd(note.content_md)}
         </div>
+        {/* 编辑/删除（hover 才显示） */}
+        <div className="flex items-center gap-0.5 shrink-0 mt-[3px] opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onClick={onStartEdit}
+            className="p-0.5 rounded text-gray-400 hover:text-violet-700 hover:bg-violet-50" title="编辑">
+            <Edit2 size={10} />
+          </button>
+          <button onClick={onDelete}
+            className="p-0.5 rounded text-gray-400 hover:text-rose-600 hover:bg-rose-50" title="删除">
+            <Trash2 size={10} />
+          </button>
+        </div>
+        {/* 拖拽手柄 — 移到最末，hover 才显示 */}
+        <span {...dragHandleProps}
+          className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity touch-none mt-[3px]">
+          <GripVertical size={12} />
+        </span>
       </div>
     </div>
   );
@@ -873,11 +951,8 @@ function CategoryFormModal({ category, onClose, onSaved }: {
   onSaved: () => Promise<void>;
 }) {
   const [label, setLabel] = useState(category?.label || "");
-  const [icon, setIcon] = useState(category?.icon || "📝");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-
-  const presetIcons = ["📦", "👥", "📝", "🏪", "🎧", "💼", "📊", "✨", "🚀", "💡", "🎯", "📌", "🔥", "⚡", "📞"];
 
   async function save() {
     if (!label.trim()) { setError("板块名不能为空"); return; }
@@ -886,7 +961,7 @@ function CategoryFormModal({ category, onClose, onSaved }: {
     const r = await fetch(url, {
       method: category ? "PATCH" : "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label: label.trim(), icon }),
+      body: JSON.stringify({ label: label.trim() }),
     });
     setBusy(false);
     if (!r.ok) { const j = await r.json(); setError(j.error || "保存失败"); return; }
@@ -921,23 +996,6 @@ function CategoryFormModal({ category, onClose, onSaved }: {
               className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-violet-400" />
           </div>
 
-          <div>
-            <label className="block text-xs text-gray-600 mb-1">图标</label>
-            <div className="flex items-center gap-2 mb-2">
-              <input value={icon} onChange={(e) => setIcon(e.target.value.slice(0, 4))}
-                className="w-16 px-2 py-2 border border-gray-200 rounded-lg text-base text-center focus:outline-none focus:border-violet-400" />
-              <span className="text-xs text-gray-500">可输入任意 emoji 或字符</span>
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {presetIcons.map((ic) => (
-                <button key={ic} onClick={() => setIcon(ic)}
-                  className={"w-8 h-8 text-base rounded border " +
-                    (icon === ic ? "border-violet-400 bg-violet-50" : "border-gray-200 hover:border-gray-300")}>
-                  {ic}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         <div className="flex justify-between items-center mt-5">
