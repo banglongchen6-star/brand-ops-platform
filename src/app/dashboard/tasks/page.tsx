@@ -280,6 +280,9 @@ export default function TasksPage() {
   // ── Data state ──
   const [tasks, setTasks] = useState<Task[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchDeleting, setBatchDeleting] = useState(false);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   // 按任务 id 分组存放协作人/协助人
@@ -377,9 +380,18 @@ export default function TasksPage() {
   }, []);
 
   useEffect(() => {
-    // 获取当前登录用户
-    supabase.auth.getUser().then(({ data }) => {
-      setCurrentUserId(data.user?.id ?? null);
+    // 获取当前登录用户 + 是否为管理员
+    supabase.auth.getUser().then(async ({ data }) => {
+      const uid = data.user?.id ?? null;
+      setCurrentUserId(uid);
+      if (uid) {
+        const { data: prof } = await supabase
+          .from("profiles")
+          .select("role")
+          .eq("id", uid)
+          .maybeSingle();
+        setIsAdmin(prof?.role === "admin");
+      }
     });
     fetchTasks();
     fetchProfiles();
@@ -391,6 +403,59 @@ export default function TasksPage() {
     setFormCollaborators([]);
     setFormAssistants([]);
   }, [form.task_type]);
+
+  // ─── Admin delete ──────────────────────────────────────────────────────────
+
+  const handleDeleteTask = async (taskId: string, title: string) => {
+    if (!confirm(`确定删除任务「${title}」？此操作不可撤销。`)) return;
+    const res = await fetch(`/api/tasks/${taskId}`, { method: "DELETE" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(json.error || "删除失败");
+      return;
+    }
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.delete(taskId);
+      return next;
+    });
+    if (selectedTask?.id === taskId) setSelectedTask(null);
+  };
+
+  const handleBatchDelete = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    if (!confirm(`确定删除选中的 ${ids.length} 条任务？此操作不可撤销。`)) return;
+    setBatchDeleting(true);
+    try {
+      const res = await fetch("/api/tasks/batch-delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(json.error || "批量删除失败");
+        return;
+      }
+      const removed = new Set(ids);
+      setTasks((prev) => prev.filter((t) => !removed.has(t.id)));
+      setSelectedIds(new Set());
+      if (selectedTask && removed.has(selectedTask.id)) setSelectedTask(null);
+    } finally {
+      setBatchDeleting(false);
+    }
+  };
+
+  const toggleSelect = (taskId: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
 
   // ─── Filtering ─────────────────────────────────────────────────────────────
 
@@ -1058,6 +1123,30 @@ export default function TasksPage() {
 
       {/* ── Task Table ── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        {/* 批量删除操作栏（仅管理员且有勾选时显示） */}
+        {isAdmin && selectedIds.size > 0 && (
+          <div className="px-5 py-3 bg-red-50 border-b border-red-100 flex items-center justify-between">
+            <span className="text-sm text-red-700 font-medium">
+              已选中 {selectedIds.size} 条任务
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="text-xs text-gray-600 hover:text-gray-800 px-3 py-1.5 rounded-lg hover:bg-white transition"
+              >
+                取消选择
+              </button>
+              <button
+                onClick={handleBatchDelete}
+                disabled={batchDeleting}
+                className="text-xs bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg flex items-center gap-1 transition"
+              >
+                {batchDeleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                批量删除
+              </button>
+            </div>
+          </div>
+        )}
         <div className="px-5 py-3.5 border-b border-gray-100 flex items-center justify-between">
           <span className="text-sm font-semibold text-gray-700">
             共 {filtered.length} 项任务
@@ -1095,7 +1184,33 @@ export default function TasksPage() {
           <>
             {/* Table header */}
             <div className="grid gap-3 px-5 py-3 text-xs text-gray-400 font-medium bg-gray-50/80 border-b border-gray-100"
-              style={{ gridTemplateColumns: "minmax(0,3fr) 90px 90px 90px 80px 100px 80px 90px 80px 60px" }}>
+              style={{ gridTemplateColumns: isAdmin
+                ? "28px minmax(0,3fr) 90px 90px 90px 80px 100px 80px 90px 80px 80px"
+                : "minmax(0,3fr) 90px 90px 90px 80px 100px 80px 90px 80px 60px" }}>
+              {isAdmin && (
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    className="w-3.5 h-3.5 rounded border-gray-300 text-violet-600 focus:ring-violet-400 cursor-pointer"
+                    checked={filtered.length > 0 && filtered.every((t) => selectedIds.has(t.id))}
+                    ref={(el) => {
+                      if (el) {
+                        const someSelected = filtered.some((t) => selectedIds.has(t.id));
+                        const allSelected = filtered.length > 0 && filtered.every((t) => selectedIds.has(t.id));
+                        el.indeterminate = someSelected && !allSelected;
+                      }
+                    }}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedIds(new Set(filtered.map((t) => t.id)));
+                      } else {
+                        setSelectedIds(new Set());
+                      }
+                    }}
+                    title="全选 / 取消全选"
+                  />
+                </div>
+              )}
               <div>任务标题</div>
               <div>任务类型</div>
               <div>所属模块</div>
@@ -1121,11 +1236,25 @@ export default function TasksPage() {
                     key={task.id}
                     className={cn(
                       "grid gap-3 px-5 py-4 items-center hover:bg-gray-50/60 transition cursor-pointer",
-                      overdueFlag && "bg-red-50/30"
+                      overdueFlag && "bg-red-50/30",
+                      selectedIds.has(task.id) && "bg-violet-50/40"
                     )}
-                    style={{ gridTemplateColumns: "minmax(0,3fr) 90px 90px 90px 80px 100px 80px 90px 80px 60px" }}
+                    style={{ gridTemplateColumns: isAdmin
+                      ? "28px minmax(0,3fr) 90px 90px 90px 80px 100px 80px 90px 80px 80px"
+                      : "minmax(0,3fr) 90px 90px 90px 80px 100px 80px 90px 80px 60px" }}
                     onClick={() => setSelectedTask(task)}
                   >
+                    {/* Checkbox（仅管理员） */}
+                    {isAdmin && (
+                      <div className="flex items-center" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-violet-600 focus:ring-violet-400 cursor-pointer"
+                          checked={selectedIds.has(task.id)}
+                          onChange={() => toggleSelect(task.id)}
+                        />
+                      </div>
+                    )}
                     {/* Title */}
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
@@ -1267,7 +1396,7 @@ export default function TasksPage() {
                     </div>
 
                     {/* Action */}
-                    <div onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1278,6 +1407,18 @@ export default function TasksPage() {
                         详情
                         <ChevronRight size={12} />
                       </button>
+                      {isAdmin && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteTask(task.id, task.title);
+                          }}
+                          className="text-gray-300 hover:text-red-600 transition p-0.5 rounded hover:bg-red-50"
+                          title="删除任务（仅管理员）"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
