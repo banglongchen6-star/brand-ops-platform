@@ -593,9 +593,12 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
   const [detecting, setDetecting] = useState(false);
   const editorRef = useRef<HTMLDivElement>(null);
   const dotColor = DOT_COLORS[(index ?? 0) % DOT_COLORS.length];
+  // 标记编辑器是否已初始化，防止 note 数据变化导致编辑中的内容被覆盖
+  const editorInitialized = useRef(false);
 
   useEffect(() => {
-    if (isEditing) {
+    if (isEditing && !editorInitialized.current) {
+      editorInitialized.current = true;
       setTitle(note.title);
       setContent(note.content_md);
       // 初始化富文本编辑器内容
@@ -612,6 +615,9 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
           editorRef.current.focus();
         }
       }, 0);
+    }
+    if (!isEditing) {
+      editorInitialized.current = false;
     }
   }, [isEditing, note.title, note.content_md]);
 
