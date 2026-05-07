@@ -70,12 +70,13 @@ function formatDate(s: string) {
 
 // 将旧的 {color} 语法转成 HTML（编辑器初始化用）
 const SYNTAX_COLOR_HEX: Record<string, string> = {
-  red: "#dc2626", orange: "#f97316", green: "#16a34a", blue: "#2563eb", purple: "#9333ea", black: "#111827",
+  red: "#dc2626", orange: "#f97316", green: "#16a34a", blue: "#2563eb", purple: "#9333ea", black: "#1f2937",
 };
-// 浏览器 style.color 标准化后的 rgb() 格式 → 颜色名
+// 浏览器 style.color 标准化后的 rgb() 格式 → 颜色名（保留 17,24,39 以兼容旧笔记）
 const COLOR_RGB_MAP: Record<string, string> = {
   "rgb(220, 38, 38)": "red", "rgb(249, 115, 22)": "orange", "rgb(22, 163, 74)": "green",
-  "rgb(37, 99, 235)": "blue", "rgb(147, 51, 234)": "purple", "rgb(17, 24, 39)": "black",
+  "rgb(37, 99, 235)": "blue", "rgb(147, 51, 234)": "purple",
+  "rgb(31, 41, 55)": "black", "rgb(17, 24, 39)": "black",
   "red": "red", "orange": "orange", "green": "green", "blue": "blue", "purple": "purple", "black": "black",
 };
 // 保存前：DOM 解析 HTML → 干净的 {color} 语法。同时清理破损数据
@@ -247,7 +248,7 @@ function renderMd(md: string): React.ReactNode {
 }
 const COLOR_MAP: Record<string, string> = {
   red: "text-red-600", orange: "text-orange-500",
-  green: "text-green-600", blue: "text-blue-600", purple: "text-purple-600", black: "text-gray-900",
+  green: "text-green-600", blue: "text-blue-600", purple: "text-purple-600", black: "text-gray-800",
 };
 
 // 笔记卡片左侧圆点颜色（按索引循环）
@@ -853,7 +854,7 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
     { name: "blue",   bg: "bg-blue-500",   title: "蓝色" },
     { name: "purple", bg: "bg-purple-500", title: "紫色" },
     { name: "highlight", bg: "bg-yellow-300", title: "黄色高亮" },
-    { name: "black",  bg: "bg-gray-900",   title: "黑色" },
+    { name: "black",  bg: "bg-gray-800",   title: "深灰" },
   ];
 
   if (isEditing) {
