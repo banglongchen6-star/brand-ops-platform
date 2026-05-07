@@ -133,22 +133,47 @@ function htmlToSyntax(html: string): string {
     }
   }
 
-  // 清理破损数据 step 2：按"去掉颜色语法后的纯文本"去重相邻行
+  // 清理破损数据 step 2：按"去掉颜色语法后的纯文本"去重，跨过空行
   const stripSyntax = (s: string) => s
     .replace(/\{(red|orange|green|blue|purple|black)\}([\s\S]+?)\{\/(?:red|orange|green|blue|purple|black)\}/g, "$2")
     .replace(/==([\s\S]+?)==/g, "$1")
     .trim();
 
+  // 收集所有非空行的纯文本，全局去重（不限相邻）
+  const seenTexts = new Set<string>();
   const deduped: string[] = [];
   for (let k = 0; k < merged.length; k++) {
     const cur = stripSyntax(merged[k]);
-    const prev = k > 0 ? stripSyntax(merged[k - 1]) : "";
-    // 与上一行纯文本相同就跳过（保留有颜色那条）
-    if (k > 0 && cur && cur === prev) continue;
+    if (cur && seenTexts.has(cur)) continue;
+    // 也检查是否是已存在文本的子串（处理部分截断的破损数据）
+    let isSubstring = false;
+    if (cur && cur.length >= 2) {
+      for (const seen of seenTexts) {
+        if (seen.includes(cur) || cur.includes(seen)) {
+          // 短的被包含在长的里，丢弃短的；否则丢弃当前
+          if (seen.length >= cur.length) { isSubstring = true; break; }
+        }
+      }
+    }
+    if (isSubstring) continue;
     deduped.push(merged[k]);
+    if (cur) seenTexts.add(cur);
   }
 
-  return deduped.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  // 最后保险：如果还残留 ≥3 个短行（≤3 字符）说明清理不彻底，全部移除
+  let finalLines = deduped;
+  const shortCount = finalLines.filter((l) => {
+    const t = stripSyntax(l);
+    return t.length > 0 && t.length <= 3;
+  }).length;
+  if (shortCount >= 3) {
+    finalLines = finalLines.filter((l) => {
+      const t = stripSyntax(l);
+      return t.length === 0 || t.length > 3;
+    });
+  }
+
+  return finalLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 function syntaxToHtml(text: string): string {
