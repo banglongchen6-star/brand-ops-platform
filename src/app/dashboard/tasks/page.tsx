@@ -26,7 +26,8 @@
 
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import {
   CheckSquare,
   Plus,
@@ -149,6 +150,7 @@ const sourceTypeOptions = [
   { value: "ai", label: "AI建议" },
   { value: "review", label: "复盘转任务" },
   { value: "auto", label: "模块联动" },
+  { value: "note", label: "笔记转任务" },
 ];
 
 const sourceTypeLabels: Record<string, string> = Object.fromEntries(
@@ -310,6 +312,12 @@ export default function TasksPage() {
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  // 来自笔记的预填来源：保存任务后要把任务 id 关联回这条笔记
+  const [linkedNoteId, setLinkedNoteId] = useState<string | null>(null);
+  const router = useRouter();
+  const prefillHandled = useRef(false);
+  const taskIdHandled = useRef(false);
+  const [pendingTaskId, setPendingTaskId] = useState<string | null>(null);
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -403,6 +411,57 @@ export default function TasksPage() {
     setFormCollaborators([]);
     setFormAssistants([]);
   }, [form.task_type]);
+
+  // ─── 处理 URL 参数 ───────────────────────────────────────────────────────────
+  // 用 window.location.search 而不是 useSearchParams（避免 Suspense 边界要求）
+  // ?from_note=1 → 从工作台跳过来，读 sessionStorage 里的 AI 预填，打开新建任务表单
+  // ?taskId=xxx → 自动打开该任务的详情抽屉
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+
+    if (!prefillHandled.current && params.get("from_note") === "1") {
+      prefillHandled.current = true;
+      const raw = sessionStorage.getItem("home_task_prefill");
+      const noteId = sessionStorage.getItem("home_task_prefill_note_id");
+      sessionStorage.removeItem("home_task_prefill");
+      sessionStorage.removeItem("home_task_prefill_note_id");
+
+      if (raw) {
+        try {
+          const data = JSON.parse(raw) as { title?: string; description?: string; acceptance_criteria?: string };
+          setForm((prev) => ({
+            ...prev,
+            title: data.title || "",
+            description: data.description || "",
+            acceptance_criteria: data.acceptance_criteria || "",
+            source_type: "note",
+          }));
+        } catch { /* 解析失败用空表单 */ }
+      }
+      if (noteId) setLinkedNoteId(noteId);
+      setShowModal(true);
+      router.replace("/dashboard/tasks");
+      return;
+    }
+
+    if (!taskIdHandled.current) {
+      const tid = params.get("taskId");
+      if (tid) setPendingTaskId(tid);
+    }
+  }, [router]);
+
+  // 等 tasks 加载完，再用 pendingTaskId 打开抽屉
+  useEffect(() => {
+    if (taskIdHandled.current || !pendingTaskId || tasks.length === 0) return;
+    const t = tasks.find((x) => x.id === pendingTaskId);
+    if (t) {
+      taskIdHandled.current = true;
+      setSelectedTask(t);
+      setPendingTaskId(null);
+      router.replace("/dashboard/tasks");
+    }
+  }, [pendingTaskId, tasks, router]);
 
   // ─── Admin delete ──────────────────────────────────────────────────────────
 
@@ -728,6 +787,18 @@ export default function TasksPage() {
       }
     }
 
+    // 如果是从笔记跳过来建的任务：把新任务 id 写回笔记的 linked_task_ids
+    if (linkedNoteId && inserted?.id) {
+      try {
+        await fetch(`/api/notes/${linkedNoteId}/link-task`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ task_id: inserted.id }),
+        });
+      } catch { /* 关联失败不阻塞建任务流程 */ }
+      setLinkedNoteId(null);
+    }
+
     closeModal();
     fetchTasks();
     fetchParticipants();
@@ -737,6 +808,7 @@ export default function TasksPage() {
   function closeModal() {
     setShowModal(false);
     setFormError(null);
+    setLinkedNoteId(null);
     setForm({
       title: "",
       description: "",

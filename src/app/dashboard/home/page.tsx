@@ -4,9 +4,11 @@
 
 import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Plus, FileText, Loader2, X, Trash2, CheckCircle2, Sparkles, ListChecks,
   Edit2, Save, Sun, Moon, ChevronDown, ChevronRight, Settings2, GripVertical,
+  Wand2, ExternalLink,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
@@ -32,6 +34,7 @@ interface Note {
   content_md: string;
   category_id: string | null;
   sort_order: number | null;
+  linked_task_ids?: string[];
   updated_at: string;
   created_at: string;
 }
@@ -43,13 +46,6 @@ interface MyTask {
   priority: string | null;
   due_at: string | null;
   my_role: string[];
-}
-interface ActionCandidate {
-  text: string;
-  suggested_title: string;
-  suggested_due: string | null;
-  priority: "low" | "medium" | "high";
-  reason: string;
 }
 
 // ============ 工具 ============
@@ -327,10 +323,11 @@ export default function HomePage() {
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
 
-  // AI
-  const [pendingActions, setPendingActions] = useState<ActionCandidate[]>([]);
-  const [showActionsPanel, setShowActionsPanel] = useState(false);
-  const [showToast, setShowToast] = useState(false);
+  // 笔记 → 任务：跳转到任务中心新建表单的 loading 状态
+  const [generatingTaskForNoteId, setGeneratingTaskForNoteId] = useState<string | null>(null);
+  // 关联任务的标题映射：taskId → title（删除的任务从这里消失，徽章数量自动更新）
+  const [linkedTaskMap, setLinkedTaskMap] = useState<Record<string, string>>({});
+  const router = useRouter();
 
   useEffect(() => { loadAll(); }, []);
 
@@ -347,7 +344,25 @@ export default function HomePage() {
   async function loadNotes() {
     const r = await fetch("/api/notes?limit=500");
     const j = await r.json();
-    setNotes((j.notes || []) as Note[]);
+    const list = (j.notes || []) as Note[];
+    setNotes(list);
+    // 顺带把所有关联任务的标题加载进来，用于"已转任务"徽章和点击跳转
+    const allLinkedIds = Array.from(
+      new Set(list.flatMap((n) => n.linked_task_ids || [])),
+    );
+    if (allLinkedIds.length > 0) {
+      const { data } = await supabase
+        .from("tasks")
+        .select("id, title")
+        .in("id", allLinkedIds);
+      const map: Record<string, string> = {};
+      (data || []).forEach((t: { id: string; title: string }) => {
+        map[t.id] = t.title;
+      });
+      setLinkedTaskMap(map);
+    } else {
+      setLinkedTaskMap({});
+    }
   }
   async function loadTasks() {
     const r = await fetch("/api/tasks/my-related");
@@ -415,33 +430,31 @@ export default function HomePage() {
     });
   }
 
-  async function detectActions(noteId: string) {
-    const r = await fetch(`/api/notes/${noteId}/detect-actions`, { method: "POST" });
-    const j = await r.json();
-    if (Array.isArray(j.candidates) && j.candidates.length > 0) {
-      setPendingActions(j.candidates);
-      setShowToast(true);
-      setTimeout(() => setShowToast(false), 8000);
-    } else {
-      alert("AI 没检测到可转任务的内容");
+  // 点击 ⚡ → AI 生成任务字段 → sessionStorage 保存预填 → 跳到任务中心打开新建任务表单
+  async function handleGenerateTask(noteId: string) {
+    setGeneratingTaskForNoteId(noteId);
+    let prefill = { title: "", description: "", acceptance_criteria: "" };
+    try {
+      const r = await fetch(`/api/notes/${noteId}/generate-task`, { method: "POST" });
+      const j = await r.json();
+      if (r.ok && j.title) {
+        prefill = {
+          title: j.title || "",
+          description: j.description || "",
+          acceptance_criteria: j.acceptance_criteria || "",
+        };
+      } else {
+        // AI 失败 → 弹空表单让用户自己填（按用户偏好 Q3）
+        alert(`AI 生成失败：${j.error || "未知错误"}（已为你打开空白任务表单）`);
+      }
+    } catch {
+      alert("AI 调用失败，已为你打开空白任务表单");
+    } finally {
+      setGeneratingTaskForNoteId(null);
     }
-  }
-
-  async function createTaskFromAction(c: ActionCandidate) {
-    const r = await fetch("/api/tasks/quick-add", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: c.suggested_title,
-        description: `来自笔记：${c.text}`,
-        priority: c.priority,
-        due_at: c.suggested_due ? c.suggested_due + "T18:00:00" : null,
-        source_type: "note_detect",
-      }),
-    });
-    if (r.ok) {
-      setPendingActions((prev) => prev.filter((x) => x !== c));
-      await loadTasks();
-    } else alert("创建任务失败");
+    sessionStorage.setItem("home_task_prefill", JSON.stringify(prefill));
+    sessionStorage.setItem("home_task_prefill_note_id", noteId);
+    router.push("/dashboard/tasks?from_note=1");
   }
 
   function toggleCollapse(catId: string) {
@@ -524,7 +537,9 @@ export default function HomePage() {
                     onCancelEdit={cancelEdit}
                     onSaveNote={saveNote}
                     onDeleteNote={deleteNote}
-                    onDetectActions={detectActions}
+                    onGenerateTask={handleGenerateTask}
+                    generatingTaskForNoteId={generatingTaskForNoteId}
+                    linkedTaskMap={linkedTaskMap}
                   />
                 </div>
               );
@@ -546,7 +561,9 @@ export default function HomePage() {
                   onCancelEdit={cancelEdit}
                   onSaveNote={saveNote}
                   onDeleteNote={deleteNote}
-                  onDetectActions={detectActions}
+                  onGenerateTask={handleGenerateTask}
+                  generatingTaskForNoteId={generatingTaskForNoteId}
+                  linkedTaskMap={linkedTaskMap}
                 />
               </div>
             )}
@@ -558,21 +575,6 @@ export default function HomePage() {
             <Plus size={14} />添加新板块
           </button>
         </>
-      )}
-
-      {/* AI Toast */}
-      {showToast && pendingActions.length > 0 && (
-        <button onClick={() => { setShowActionsPanel(true); setShowToast(false); }}
-          className="fixed bottom-6 right-6 z-50 inline-flex items-center gap-2 px-4 py-3 bg-violet-600 text-white rounded-xl shadow-lg hover:bg-violet-700">
-          <Sparkles size={16} />
-          <span className="text-sm">Qwen 检测到 {pendingActions.length} 个可能的待办</span>
-          <span className="text-xs opacity-80">点击查看 →</span>
-        </button>
-      )}
-      {showActionsPanel && (
-        <ActionsPanel actions={pendingActions} onClose={() => setShowActionsPanel(false)}
-          onCreate={createTaskFromAction}
-          onDismiss={(c) => setPendingActions((prev) => prev.filter((x) => x !== c))} />
       )}
 
       {/* 板块编辑弹窗 */}
@@ -590,7 +592,7 @@ export default function HomePage() {
 // ============ 板块区 ============
 function CategorySection({
   category, notes, collapsed, onToggleCollapse, onAddNote, onCategorySaved, hideAddNote, hideEditCategory,
-  onReorder, editingNoteId, onStartEdit, onCancelEdit, onSaveNote, onDeleteNote, onDetectActions,
+  onReorder, editingNoteId, onStartEdit, onCancelEdit, onSaveNote, onDeleteNote, onGenerateTask, generatingTaskForNoteId, linkedTaskMap,
 }: {
   category: Category; notes: Note[];
   collapsed: boolean; onToggleCollapse: () => void;
@@ -602,7 +604,9 @@ function CategorySection({
   onCancelEdit: () => void;
   onSaveNote: (id: string, title: string, content: string) => Promise<void>;
   onDeleteNote: (id: string) => Promise<void>;
-  onDetectActions: (id: string) => Promise<void>;
+  onGenerateTask: (id: string) => Promise<void>;
+  generatingTaskForNoteId: string | null;
+  linkedTaskMap: Record<string, string>;
 }) {
   const [isEditingLabel, setIsEditingLabel] = useState(false);
   const [editLabel, setEditLabel] = useState(category.label);
@@ -715,7 +719,9 @@ function CategorySection({
                     onCancelEdit={onCancelEdit}
                     onSave={(title, content) => onSaveNote(n.id, title, content)}
                     onDelete={() => onDeleteNote(n.id)}
-                    onDetect={() => onDetectActions(n.id)}
+                    onGenerateTask={() => onGenerateTask(n.id)}
+                    isGeneratingTask={generatingTaskForNoteId === n.id}
+                    linkedTaskMap={linkedTaskMap}
                   />
                 ))}
               </SortableContext>
@@ -746,7 +752,7 @@ function SortableNoteCard(props: React.ComponentProps<typeof NoteCard>) {
 
 
 // ============ 笔记卡片 ============
-function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, onDelete, onDetect, dragHandleProps }: {
+function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, onDelete, onGenerateTask, isGeneratingTask, linkedTaskMap, dragHandleProps }: {
   note: Note;
   index?: number;
   isEditing: boolean;
@@ -754,13 +760,15 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
   onCancelEdit: () => void;
   onSave: (title: string, content: string) => Promise<void>;
   onDelete: () => void;
-  onDetect: () => Promise<void>;
+  onGenerateTask: () => Promise<void>;
+  isGeneratingTask: boolean;
+  linkedTaskMap: Record<string, string>;
   dragHandleProps?: React.HTMLAttributes<HTMLElement>;
 }) {
   const [title, setTitle] = useState(note.title);
   const [content, setContent] = useState(note.content_md);
   const [saving, setSaving] = useState(false);
-  const [detecting, setDetecting] = useState(false);
+  const [showLinkedTasks, setShowLinkedTasks] = useState(false);
   const editorRef = useRef<HTMLDivElement>(null);
   const dotColor = DOT_COLORS[(index ?? 0) % DOT_COLORS.length];
   // 标记编辑器是否已初始化，防止 note 数据变化导致编辑中的内容被覆盖
@@ -800,9 +808,6 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
     const rawHtml = editorRef.current?.innerHTML ?? content;
     const clean = htmlToSyntax(rawHtml);
     setSaving(true); await onSave(title.slice(0, 80), clean); setSaving(false);
-  }
-  async function handleDetect() {
-    setDetecting(true); await onDetect(); setDetecting(false);
   }
 
   function applyColor(color: string) {
@@ -890,11 +895,6 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
         <div className="mt-2 flex items-center gap-1.5">
           <span className="text-[10px] text-gray-400">{content.replace(/<[^>]+>/g, "").length} 字</span>
           <div className="flex-1" />
-          <button onClick={handleDetect} disabled={detecting || !content.trim()}
-            className="inline-flex items-center gap-1 px-2 py-1 text-[10px] border border-violet-200 text-violet-700 rounded hover:bg-violet-50 disabled:opacity-50">
-            {detecting ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
-            AI 检测待办
-          </button>
           <button onClick={onCancelEdit} disabled={saving}
             className="px-2 py-1 text-[10px] border border-gray-200 rounded text-gray-700 hover:bg-gray-50">
             取消
@@ -909,8 +909,13 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
     );
   }
 
+  // 关联任务：过滤掉已被删除的（linkedTaskMap 里没有 = 已删）
+  const linkedTasks = (note.linked_task_ids || [])
+    .filter((tid) => linkedTaskMap[tid])
+    .map((tid) => ({ id: tid, title: linkedTaskMap[tid] }));
+
   return (
-    // 单行布局：[拖拽柄][圆点][标题?+正文][时间+编辑+删除]，去掉空白标题栏
+    // 单行布局：[拖拽柄][圆点][标题?+正文][时间+AI转任务+编辑+删除]，去掉空白标题栏
     <div key="view" className="group bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-violet-300 hover:shadow-sm transition-all overflow-hidden">
       <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-start gap-1.5">
         {/* 序号（拖拽排序后自动更新） */}
@@ -929,9 +934,45 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
             </h3>
           )}
           {renderMd(note.content_md)}
+          {/* 已转任务徽章 */}
+          {linkedTasks.length > 0 && (
+            <div className="relative mt-1 inline-block">
+              <button
+                onClick={() => setShowLinkedTasks((v) => !v)}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full hover:bg-emerald-100 transition"
+                title="点击查看关联任务"
+              >
+                <CheckCircle2 size={10} />
+                已转任务 {linkedTasks.length}
+              </button>
+              {showLinkedTasks && (
+                <>
+                  {/* 点击外部关闭 */}
+                  <div className="fixed inset-0 z-10" onClick={() => setShowLinkedTasks(false)} />
+                  <div className="absolute left-0 mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg w-[280px] py-1">
+                    {linkedTasks.map((t) => (
+                      <Link
+                        key={t.id}
+                        href={`/dashboard/tasks?taskId=${t.id}`}
+                        className="flex items-start gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-violet-50 hover:text-violet-700"
+                        onClick={() => setShowLinkedTasks(false)}
+                      >
+                        <ExternalLink size={11} className="mt-0.5 shrink-0 text-gray-400" />
+                        <span className="flex-1 break-words">{t.title}</span>
+                      </Link>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
-        {/* 编辑/删除（hover 才显示） */}
+        {/* AI 转任务 / 编辑 / 删除（hover 才显示） */}
         <div className="flex items-center gap-0.5 shrink-0 mt-[3px] opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onClick={onGenerateTask} disabled={isGeneratingTask}
+            className="p-0.5 rounded text-gray-400 hover:text-violet-700 hover:bg-violet-50 disabled:opacity-50" title="AI 转任务">
+            {isGeneratingTask ? <Loader2 size={10} className="animate-spin" /> : <Wand2 size={10} />}
+          </button>
           <button onClick={onStartEdit}
             className="p-0.5 rounded text-gray-400 hover:text-violet-700 hover:bg-violet-50" title="编辑">
             <Edit2 size={10} />
@@ -1119,50 +1160,3 @@ function TaskRow({ task, onToggle }: { task: MyTask; onToggle: () => Promise<voi
   );
 }
 
-// ============ AI 转任务面板 ============
-function ActionsPanel({ actions, onClose, onCreate, onDismiss }: {
-  actions: ActionCandidate[];
-  onClose: () => void;
-  onCreate: (c: ActionCandidate) => Promise<void>;
-  onDismiss: (c: ActionCandidate) => void;
-}) {
-  return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[80vh] overflow-y-auto">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white">
-          <div className="flex items-center gap-2">
-            <Sparkles size={16} className="text-violet-600" />
-            <h3 className="font-semibold text-gray-900">AI 检测到的待办（{actions.length}）</h3>
-          </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 text-gray-500"><X size={18} /></button>
-        </div>
-        <div className="p-4 space-y-3">
-          {actions.map((c, i) => (
-            <div key={i} className="border border-gray-200 rounded-xl p-3">
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <div className="flex-1 min-w-0">
-                  <h4 className="font-semibold text-gray-900 text-sm mb-1">{c.suggested_title}</h4>
-                  <p className="text-xs text-gray-500 mb-1">原文：「{c.text}」</p>
-                  <p className="text-xs text-gray-400">{c.reason}</p>
-                </div>
-                <span className={"text-[10px] px-2 py-0.5 rounded-full shrink-0 " +
-                  (c.priority === "high" ? "bg-rose-100 text-rose-700" :
-                   c.priority === "medium" ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-600")}>
-                  {c.priority === "high" ? "高" : c.priority === "medium" ? "中" : "低"}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                {c.suggested_due && <span className="text-[11px] text-blue-600">📅 {c.suggested_due}</span>}
-                <div className="flex-1" />
-                <button onClick={() => onDismiss(c)}
-                  className="px-3 py-1 text-xs border border-gray-200 rounded-md hover:bg-gray-50 text-gray-600">忽略</button>
-                <button onClick={() => onCreate(c)}
-                  className="px-3 py-1 text-xs bg-violet-600 text-white rounded-md hover:bg-violet-700">+ 创建任务</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
