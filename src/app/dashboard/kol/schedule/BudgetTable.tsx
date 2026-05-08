@@ -19,6 +19,7 @@ export interface BudgetRow {
   budgetAmount: number;
   targetCount: number | null;
   platform: string;
+  functionDisplay: string;
   requirements: string;
   actualSpent: number;
   actualCount: number;
@@ -34,7 +35,7 @@ export interface BudgetTotal {
   gap: number;
 }
 
-type EditableField = "budgetAmount" | "targetCount" | "platform" | "requirements";
+type EditableField = "budgetAmount" | "targetCount" | "platform" | "requirements" | "functionDisplay";
 
 function fmtCNY(n: number, opts?: { wan?: boolean }): string {
   if (opts?.wan && Math.abs(n) >= 10000) {
@@ -101,21 +102,21 @@ export function BudgetTable({
         <div className="overflow-x-auto">
           <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
             <colgroup>
-              <col style={{ width: "22%" }} />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "12%" }} />
               <col style={{ width: "11%" }} />
-              <col style={{ width: "13%" }} />
-              <col style={{ width: "10%" }} />
-              <col style={{ width: "13%" }} />
-              <col style={{ width: "27%" }} />
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "20%" }} />
+              <col style={{ width: "22%" }} />
               <col style={{ width: "4%" }} />
             </colgroup>
             <thead>
               <tr className="text-xs text-gray-500 font-normal bg-white border-b border-gray-100">
                 <th className="text-left px-3 py-2 font-normal">类目</th>
-                <th className="text-right px-3 py-2 font-normal">预算（万）</th>
                 <th className="text-left px-3 py-2 font-normal">平台</th>
-                <th className="text-center px-3 py-2 font-normal">已 / 目</th>
-                <th className="text-right px-3 py-2 font-normal">已花</th>
+                <th className="text-right px-3 py-2 font-normal">预算（万）</th>
+                <th className="text-center px-3 py-2 font-normal">实际 / 目标</th>
+                <th className="text-left px-3 py-2 font-normal">功能展示</th>
                 <th className="text-left px-3 py-2 font-normal">要求</th>
                 <th className="px-1 py-2 font-normal text-center text-gray-300">{canEdit ? "删除" : ""}</th>
               </tr>
@@ -130,16 +131,8 @@ export function BudgetTable({
                     title={r.requirements || ""}
                     className={`group border-b border-gray-50 last:border-b-0 ${overspent ? "bg-amber-50/30" : ""}`}
                   >
+                    {/* 类目 */}
                     <td className="px-3 py-2 text-gray-900 truncate">{r.category}</td>
-
-                    {/* 预算（万元） */}
-                    <td className="px-1 py-1 text-right tabular-nums">
-                      <BudgetCell
-                        canEdit={canEdit}
-                        value={r.budgetAmount}
-                        onSave={(v) => onSave(r.category, "budgetAmount", v)}
-                      />
-                    </td>
 
                     {/* 平台 */}
                     <td className="px-1 py-1">
@@ -152,7 +145,16 @@ export function BudgetTable({
                       />
                     </td>
 
-                    {/* 已/目（已实际只读 + 目标可编辑） */}
+                    {/* 预算（万元） */}
+                    <td className="px-1 py-1 text-right tabular-nums">
+                      <BudgetCell
+                        canEdit={canEdit}
+                        value={r.budgetAmount}
+                        onSave={(v) => onSave(r.category, "budgetAmount", v)}
+                      />
+                    </td>
+
+                    {/* 实际 / 目标 —— 实际只读 + 目标内联编辑 */}
                     <td className={`px-1 py-1 text-center tabular-nums ${
                       targetReached ? "text-green-700 font-medium" : "text-gray-700"
                     }`}>
@@ -165,11 +167,15 @@ export function BudgetTable({
                       />
                     </td>
 
-                    {/* 已花（只读） */}
-                    <td className={`px-3 py-2 text-right tabular-nums ${
-                      overspent ? "text-amber-600 font-medium" : "text-gray-700"
-                    }`}>
-                      {r.actualSpent > 0 ? fmtCNY(r.actualSpent) : "—"}
+                    {/* 功能展示 */}
+                    <td className="px-1 py-1 text-xs">
+                      <TextCell
+                        canEdit={canEdit}
+                        value={r.functionDisplay}
+                        placeholder="—"
+                        align="left"
+                        onSave={(v) => onSave(r.category, "functionDisplay", v)}
+                      />
                     </td>
 
                     {/* 要求 */}
@@ -258,16 +264,13 @@ export function BudgetTable({
               <tfoot>
                 <tr className="border-t border-gray-200 bg-gray-50/50 font-medium">
                   <td className="px-3 py-2 text-gray-900">合计</td>
+                  <td className="px-3 py-2"></td>
                   <td className="px-3 py-2 text-right text-gray-900 tabular-nums">
                     {(total.budget / 10000).toFixed(1).replace(/\.0$/, "") || "0"}
                   </td>
-                  <td className="px-3 py-2"></td>
                   <td className="px-3 py-2 text-center tabular-nums text-gray-900">
                     {total.count}
                     {total.target > 0 && <span className="text-gray-400 font-normal"> / {total.target}</span>}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums text-gray-900">
-                    {fmtCNY(total.spent)}
                   </td>
                   <td className="px-3 py-2 text-xs">
                     {total.gap < 0 ? (
@@ -276,6 +279,7 @@ export function BudgetTable({
                       <span className="text-gray-500">缺口 {fmtCNY(total.gap)}</span>
                     ) : null}
                   </td>
+                  <td className="px-3 py-2"></td>
                   <td className="px-1 py-2"></td>
                 </tr>
               </tfoot>

@@ -25,6 +25,7 @@ interface BudgetRow {
   budgetAmount: number;
   targetCount: number | null;
   platform: string;
+  functionDisplay: string;
   requirements: string;
   actualSpent: number;
   actualCount: number;
@@ -61,7 +62,7 @@ export async function GET(req: Request) {
   // 1. 类目字典（active）
   const { data: catRows, error: catErr } = await admin
     .from("schedule_categories")
-    .select("id, name, short_name, default_platform, default_requirements, sort_order, is_active")
+    .select("id, name, short_name, default_platform, default_requirements, default_function_display, sort_order, is_active")
     .order("sort_order", { ascending: true });
   if (catErr) return Response.json({ error: catErr.message }, { status: 500 });
   const activeCats = (catRows ?? []).filter((c) => c.is_active);
@@ -69,7 +70,7 @@ export async function GET(req: Request) {
   // 2. 当月预算行
   const { data: budgetRows, error: bErr } = await admin
     .from("schedule_budgets")
-    .select("category, budget_amount, target_count, platform, requirements, notes")
+    .select("category, budget_amount, target_count, platform, requirements, function_display, notes")
     .eq("year", year)
     .eq("month", month);
   if (bErr) return Response.json({ error: bErr.message }, { status: 500 });
@@ -108,6 +109,7 @@ export async function GET(req: Request) {
     const targetCount = b?.target_count == null ? null : Number(b.target_count);
     const platform = (b?.platform as string) || (c.default_platform as string) || "";
     const requirements = (b?.requirements as string) || (c.default_requirements as string) || "";
+    const functionDisplay = (b?.function_display as string) || (c.default_function_display as string) || "";
     rows.push({
       categoryId: c.id as string,
       category: c.name as string,
@@ -115,6 +117,7 @@ export async function GET(req: Request) {
       budgetAmount,
       targetCount,
       platform,
+      functionDisplay,
       requirements,
       actualSpent: actual.spent,
       actualCount: actual.count,
@@ -134,7 +137,8 @@ export async function GET(req: Request) {
       rows.push({
         categoryId: null,
         category: cat, shortName: cat,
-        budgetAmount: 0, targetCount: null, platform: "", requirements: "",
+        budgetAmount: 0, targetCount: null, platform: "",
+        functionDisplay: "", requirements: "",
         actualSpent: actual.spent, actualCount: actual.count,
         gap: -actual.spent, hasBudgetRecord: false,
       });
@@ -197,9 +201,10 @@ export async function PUT(req: Request) {
       patch.target_count = n;
     }
   }
-  if ("platform" in body)     patch.platform = String(body.platform ?? "").trim();
-  if ("requirements" in body) patch.requirements = String(body.requirements ?? "").trim();
-  if ("notes" in body)        patch.notes = String(body.notes ?? "").trim();
+  if ("platform" in body)        patch.platform = String(body.platform ?? "").trim();
+  if ("requirements" in body)    patch.requirements = String(body.requirements ?? "").trim();
+  if ("functionDisplay" in body) patch.function_display = String(body.functionDisplay ?? "").trim();
+  if ("notes" in body)           patch.notes = String(body.notes ?? "").trim();
 
   if (Object.keys(patch).length === 0) {
     return Response.json({ error: "没有要更新的字段" }, { status: 400 });
@@ -214,11 +219,12 @@ export async function PUT(req: Request) {
 
   const merged: Record<string, unknown> = {
     year, month, category,
-    budget_amount: patch.budget_amount ?? existing?.budget_amount ?? 0,
-    target_count:  "target_count" in patch ? patch.target_count : existing?.target_count ?? null,
-    platform:      patch.platform ?? existing?.platform ?? "",
-    requirements:  patch.requirements ?? existing?.requirements ?? "",
-    notes:         patch.notes ?? existing?.notes ?? "",
+    budget_amount:    patch.budget_amount ?? existing?.budget_amount ?? 0,
+    target_count:     "target_count" in patch ? patch.target_count : existing?.target_count ?? null,
+    platform:         patch.platform ?? existing?.platform ?? "",
+    requirements:     patch.requirements ?? existing?.requirements ?? "",
+    function_display: patch.function_display ?? existing?.function_display ?? "",
+    notes:            patch.notes ?? existing?.notes ?? "",
     updated_by: guard.userId,
     updated_at: new Date().toISOString(),
   };

@@ -211,7 +211,7 @@ export default function SchedulePage() {
   // 内联保存某行某个字段：乐观更新（先改本地状态，失败再回滚 + 报错）
   async function saveBudgetField(
     category: string,
-    field: "budgetAmount" | "targetCount" | "platform" | "requirements",
+    field: "budgetAmount" | "targetCount" | "platform" | "requirements" | "functionDisplay",
     value: string | number | null
   ) {
     const prevRows = budgetRows;
@@ -220,10 +220,11 @@ export default function SchedulePage() {
     const newRows = budgetRows.map((r) => {
       if (r.category !== category) return r;
       const next = { ...r, hasBudgetRecord: true };
-      if (field === "budgetAmount") next.budgetAmount = Number(value) || 0;
-      if (field === "targetCount")  next.targetCount = value == null ? null : Number(value);
-      if (field === "platform")     next.platform = String(value ?? "");
-      if (field === "requirements") next.requirements = String(value ?? "");
+      if (field === "budgetAmount")    next.budgetAmount = Number(value) || 0;
+      if (field === "targetCount")     next.targetCount = value == null ? null : Number(value);
+      if (field === "platform")        next.platform = String(value ?? "");
+      if (field === "requirements")    next.requirements = String(value ?? "");
+      if (field === "functionDisplay") next.functionDisplay = String(value ?? "");
       next.gap = next.budgetAmount - next.actualSpent;
       return next;
     });
