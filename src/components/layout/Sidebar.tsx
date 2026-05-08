@@ -18,7 +18,7 @@ const navGroups = [
       { href: "/dashboard/home",       label: "工作笔记", icon: LayoutDashboard },
       { href: "/dashboard/tasks",      label: "任务中心",   icon: CheckSquare, badge: "今日" },
       { href: "/dashboard/sales",      label: "电商销售",   icon: ShoppingCart },
-      { href: "/dashboard/kol",        label: "达人营销",   icon: Users },
+      { href: "/dashboard/kol",        label: "达人营销",   icon: Users, landing: "/dashboard/kol/schedule" },
       { href: "/dashboard/content",    label: "内容运营",   icon: FileVideo },
       { href: "/dashboard/articles",   label: "文字内容",   icon: PenLine },
       { href: "/dashboard/channel",    label: "渠道分销",   icon: Store },
@@ -103,12 +103,15 @@ export function Sidebar() {
             <div className="px-4 mb-1 text-[10px] font-semibold text-violet-400 uppercase tracking-wider">
               {group.label}
             </div>
-            {group.items.map(({ href, label, icon: Icon, badge }) => {
+            {group.items.map((item) => {
+              const { href, label, icon: Icon, badge } = item;
+              // 可选 landing：点击落到子路径，但 sidebar 高亮仍以 href 为前缀（如达人营销点击进 /kol/schedule）
+              const linkHref = (item as { landing?: string }).landing ?? href;
               const active = href === activeHref;
               return (
                 <Link
                   key={href}
-                  href={href}
+                  href={linkHref}
                   className={cn(
                     "flex items-center gap-2.5 mx-2 px-3 py-2 rounded-lg text-sm transition-colors",
                     active
