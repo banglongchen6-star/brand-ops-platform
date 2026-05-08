@@ -10,11 +10,15 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ChevronLeft, ChevronRight, Plus, Settings as SettingsIcon,
-  Loader2, X, Save, Trash2, ExternalLink, Filter, Upload, Download,
+  Loader2, X, Save, Trash2, ExternalLink, Filter, Upload, Download, Copy,
 } from "lucide-react";
 import { KolSelector } from "@/components/kol/KolSelector";
 import { ImportWizard } from "./ImportWizard";
 import { FilterDialog } from "./FilterDialog";
+import { BudgetTable, type BudgetRow, type BudgetTotal } from "./BudgetTable";
+import { BudgetEditor } from "./BudgetEditor";
+import { useIsAdmin } from "@/lib/useIsAdmin";
+import { supabase } from "@/lib/supabase";
 
 interface ItemDTO {
   id: string;
@@ -95,6 +99,12 @@ function todayYMD(): string {
   return `${y}-${m}-${day}`;
 }
 
+function prevMonthLabel(year: number, month: number): string {
+  let y = year, m = month - 1;
+  if (m < 1) { m = 12; y -= 1; }
+  return `${y} 年 ${m} 月`;
+}
+
 export default function SchedulePage() {
   const today = useMemo(() => new Date(), []);
   const [year, setYear] = useState(today.getFullYear());
@@ -116,6 +126,25 @@ export default function SchedulePage() {
   const [filterCats, setFilterCats] = useState<string[]>([]);
   const [filterTiers, setFilterTiers] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
+
+  // 月度规划表 + 预算编辑
+  const [budgetRows, setBudgetRows] = useState<BudgetRow[]>([]);
+  const [budgetTotal, setBudgetTotal] = useState<BudgetTotal>({ budget: 0, target: 0, spent: 0, count: 0, gap: 0 });
+  const [budgetLoading, setBudgetLoading] = useState(true);
+  const [editingBudget, setEditingBudget] = useState<BudgetRow | null>(null);
+  const [copyingBudget, setCopyingBudget] = useState(false);
+
+  const isAdmin = useIsAdmin();
+  const [role, setRole] = useState<string | null>(null);
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setRole(""); return; }
+      const { data } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
+      setRole(data?.role ?? "");
+    })();
+  }, []);
+  const canEditBudget = isAdmin === true || role === "manager";
 
   async function loadData(y: number, m: number, cats = filterCats, tiers = filterTiers) {
     setLoading(true); setError("");
@@ -142,6 +171,38 @@ export default function SchedulePage() {
     window.location.href = `/api/kol-schedules/export?${params.toString()}`;
   }
 
+  async function loadBudgets(y: number, m: number) {
+    setBudgetLoading(true);
+    try {
+      const r = await fetch(`/api/schedule-budgets?year=${y}&month=${m}`);
+      const j = await r.json();
+      if (r.ok) {
+        setBudgetRows(j.rows || []);
+        setBudgetTotal(j.total || { budget: 0, target: 0, spent: 0, count: 0, gap: 0 });
+      }
+    } finally {
+      setBudgetLoading(false);
+    }
+  }
+
+  async function copyFromLastMonth() {
+    if (!confirm(`从上月（${prevMonthLabel(year, month)}）复制预算到 ${year} 年 ${month} 月？已设置过的类目会保留不动。`)) return;
+    setCopyingBudget(true);
+    const r = await fetch("/api/schedule-budgets/copy-from-last-month", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ year, month }),
+    });
+    const j = await r.json();
+    setCopyingBudget(false);
+    if (!r.ok) { alert(j.error || "复制失败"); return; }
+    if (j.copied === 0 && j.skipped === 0) {
+      alert(j.message || "上月没有预算可复制");
+      return;
+    }
+    alert(`复制完成：新增 ${j.copied} 条，跳过已存在的 ${j.skipped} 条`);
+    loadBudgets(year, month);
+  }
+
   async function loadDicts() {
     const [r1, r2] = await Promise.all([
       fetch("/api/schedule-categories"),
@@ -153,7 +214,12 @@ export default function SchedulePage() {
   }
 
   useEffect(() => { loadDicts(); }, []);
-  useEffect(() => { loadData(year, month); }, [year, month]);
+  useEffect(() => { loadData(year, month); loadBudgets(year, month); }, [year, month]);
+
+  // 排期变动后同时刷新月度规划表（已花/已排数字会变）
+  async function reloadAll() {
+    await Promise.all([loadData(year, month), loadBudgets(year, month)]);
+  }
 
   function shift(delta: -1 | 1) {
     let y = year; let m = month + delta;
@@ -234,11 +300,31 @@ export default function SchedulePage() {
         </div>
       </div>
 
-      {/* 月度小计（M3 会做完整规划表，先放一行总计） */}
-      <div className="mb-3 px-4 py-2 rounded-lg bg-gray-50 border border-gray-200 text-xs text-gray-600 flex justify-between items-center">
-        <span>本月排期 <strong className="text-gray-900 tabular-nums">{data?.totalCount ?? 0}</strong> 条</span>
-        <span>已花 <strong className="text-gray-900 tabular-nums">{fmtCNY(data?.monthTotal ?? 0)}</strong></span>
+      {/* 4 个统计卡片 */}
+      <StatCards total={budgetTotal} />
+
+      {/* 月度规划表 + 复制上月按钮（manager+ 才能编辑/复制） */}
+      <div className="flex items-center justify-end gap-2 mb-2">
+        {canEditBudget && (
+          <button onClick={copyFromLastMonth} disabled={copyingBudget}
+            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] text-gray-600 border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-50">
+            {copyingBudget ? <Loader2 size={11} className="animate-spin" /> : <Copy size={11} />}
+            从 {prevMonthLabel(year, month)} 复制预算
+          </button>
+        )}
       </div>
+      {budgetLoading ? (
+        <div className="py-6 text-center text-sm text-gray-400 inline-flex items-center justify-center gap-2 w-full">
+          <Loader2 size={14} className="animate-spin" /> 月度规划加载中…
+        </div>
+      ) : (
+        <BudgetTable
+          rows={budgetRows}
+          total={budgetTotal}
+          canEdit={canEditBudget}
+          onRowClick={(r) => setEditingBudget(r)}
+        />
+      )}
 
       {/* 月历主体 */}
       {loading ? (
@@ -262,7 +348,16 @@ export default function SchedulePage() {
           categories={categories}
           directions={directions}
           onClose={() => setEditorOpen(false)}
-          onSaved={() => { setEditorOpen(false); loadData(year, month); }}
+          onSaved={() => { setEditorOpen(false); reloadAll(); }}
+        />
+      )}
+
+      {editingBudget && (
+        <BudgetEditor
+          year={year} month={month}
+          row={editingBudget}
+          onClose={() => setEditingBudget(null)}
+          onSaved={() => { setEditingBudget(null); loadBudgets(year, month); }}
         />
       )}
 
@@ -288,7 +383,7 @@ export default function SchedulePage() {
       {importOpen && (
         <ImportWizard
           onClose={() => setImportOpen(false)}
-          onCompleted={() => { setImportOpen(false); loadData(year, month); }}
+          onCompleted={() => { setImportOpen(false); reloadAll(); }}
         />
       )}
     </>
@@ -648,5 +743,66 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="block text-[11px] text-gray-500 mb-1">{label}</span>
       {children}
     </label>
+  );
+}
+
+// ─────────────────────────────────────────── Stat Cards ───────────────────────────────────────────
+
+function StatCards({ total }: { total: BudgetTotal }) {
+  const completionPct = total.target > 0
+    ? Math.round((total.count / total.target) * 100)
+    : null;
+
+  return (
+    <div className="grid grid-cols-4 gap-3 mb-4">
+      <StatCard
+        label="本月排期"
+        value={
+          <>
+            <span className="tabular-nums">{total.count}</span>
+            {total.target > 0 && <span className="text-gray-400 text-sm font-normal"> / {total.target} 条</span>}
+          </>
+        }
+      />
+      <StatCard
+        label="已花"
+        value={<span className="tabular-nums">¥{total.spent.toLocaleString("zh-CN")}</span>}
+      />
+      <StatCard
+        label="月预算"
+        value={
+          total.budget > 0
+            ? <span className="tabular-nums">{(total.budget / 10000).toFixed(1).replace(/\.0$/, "")} 万</span>
+            : <span className="text-gray-400 text-base font-normal">未设</span>
+        }
+      />
+      <StatCard
+        label="完成度"
+        value={
+          completionPct == null
+            ? <span className="text-gray-400 text-base font-normal">—</span>
+            : (
+              <div className="w-full">
+                <div className="tabular-nums">{completionPct}%</div>
+                <div className="mt-1 w-full h-1 bg-gray-100 rounded overflow-hidden">
+                  <div
+                    className={`h-full ${completionPct >= 100 ? "bg-green-500" : "bg-violet-500"}`}
+                    style={{ width: `${Math.min(completionPct, 100)}%` }}
+                  />
+                </div>
+              </div>
+            )
+        }
+      />
+    </div>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
+      <div className="text-[11px] text-gray-500">{label}</div>
+      <div className="text-lg font-semibold text-gray-900 mt-1">{value}</div>
+    </div>
   );
 }
