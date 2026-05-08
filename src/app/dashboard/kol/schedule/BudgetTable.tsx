@@ -117,7 +117,7 @@ export function BudgetTable({
                 <th className="text-center px-3 py-2 font-normal">已 / 目</th>
                 <th className="text-right px-3 py-2 font-normal">已花</th>
                 <th className="text-left px-3 py-2 font-normal">要求</th>
-                <th className="px-1 py-2 font-normal"></th>
+                <th className="px-1 py-2 font-normal text-center text-gray-300">{canEdit ? "删除" : ""}</th>
               </tr>
             </thead>
             <tbody>
@@ -183,15 +183,15 @@ export function BudgetTable({
                       />
                     </td>
 
-                    {/* 删除（hover 出现） */}
+                    {/* 删除按钮 —— 始终可见，淡灰色，悬停变红 */}
                     <td className="px-1 py-1 text-center">
                       {canEdit && r.categoryId && (
                         <button
                           onClick={() => onRemove(r.categoryId!, r.category, r.actualCount > 0 || r.budgetAmount > 0)}
-                          className="opacity-0 group-hover:opacity-100 transition text-gray-300 hover:text-rose-600 inline-flex items-center justify-center"
+                          className="text-gray-300 hover:text-rose-600 hover:bg-rose-50 rounded p-1 inline-flex items-center justify-center transition"
                           title={`删除类目「${r.category}」`}
                         >
-                          <Trash2 size={12} />
+                          <Trash2 size={13} />
                         </button>
                       )}
                     </td>
