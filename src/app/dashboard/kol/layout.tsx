@@ -19,11 +19,11 @@ export default function KolLayout({ children }: { children: React.ReactNode }) {
       </div>
 
       <div className="flex gap-1 mb-6 border-b border-gray-200">
-        <TabLink href="/dashboard/kol" active={!isSchedule} icon={Users}>
-          达人列表
-        </TabLink>
         <TabLink href="/dashboard/kol/schedule" active={isSchedule} icon={Calendar}>
           排期表
+        </TabLink>
+        <TabLink href="/dashboard/kol" active={!isSchedule} icon={Users}>
+          达人列表
         </TabLink>
       </div>
 
