@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Plus, Save, X, ChevronUp, ChevronDown, Loader2 } from "lucide-react";
+import { ArrowLeft, Plus, Save, X, ChevronUp, ChevronDown, Loader2, Download } from "lucide-react";
 import { useIsAdmin } from "@/lib/useIsAdmin";
 import { supabase } from "@/lib/supabase";
 
@@ -53,7 +53,12 @@ export default function ScheduleSettingsPage() {
           </Link>
         </div>
         <h1 className="text-xl font-semibold text-gray-900">字典管理</h1>
-        <div />
+        <a
+          href="/api/kol-schedules/import/template"
+          className="text-xs text-violet-700 hover:underline inline-flex items-center gap-1"
+        >
+          <Download size={12} /> 下载导入模板
+        </a>
       </div>
 
       {!canEdit && (

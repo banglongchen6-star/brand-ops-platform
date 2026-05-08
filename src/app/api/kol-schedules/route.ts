@@ -93,14 +93,21 @@ export async function GET(req: Request) {
   const gridEnd = new Date(gridStart);
   gridEnd.setUTCDate(gridStart.getUTCDate() + 35); // 5 周 × 7 天
 
+  // 可选筛选：categories=a,b  tiers=头部,腰部
+  const categories = (searchParams.get("categories") || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const tiers = (searchParams.get("tiers") || "").split(",").map((s) => s.trim()).filter(Boolean);
+
   const admin = getAdminClient();
-  const { data: rows, error } = await admin
+  let qb = admin
     .from("kol_schedules")
     .select("id, schedule_date, category, category_direction, tier, kol_name, kol_id, amount, platform, status, publish_url, publish_date, notes")
     .gte("schedule_date", ymd(gridStart))
     .lt("schedule_date", ymd(gridEnd))
     .order("schedule_date", { ascending: true })
     .order("created_at", { ascending: true });
+  if (categories.length) qb = qb.in("category", categories);
+  if (tiers.length) qb = qb.in("tier", tiers);
+  const { data: rows, error } = await qb;
   if (error) return Response.json({ error: error.message }, { status: 500 });
 
   // 拉一次类目字典做 short_name 映射

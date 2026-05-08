@@ -10,8 +10,11 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ChevronLeft, ChevronRight, Plus, Settings as SettingsIcon,
-  Loader2, X, Save, Trash2, ExternalLink,
+  Loader2, X, Save, Trash2, ExternalLink, Filter, Upload, Download,
 } from "lucide-react";
+import { KolSelector } from "@/components/kol/KolSelector";
+import { ImportWizard } from "./ImportWizard";
+import { FilterDialog } from "./FilterDialog";
 
 interface ItemDTO {
   id: string;
@@ -108,10 +111,19 @@ export default function SchedulePage() {
   const [editorItem, setEditorItem] = useState<ItemDTO | null>(null);
   const [editorDate, setEditorDate] = useState<string>(todayYMD());
 
-  async function loadData(y: number, m: number) {
+  // 筛选 + 导入
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [filterCats, setFilterCats] = useState<string[]>([]);
+  const [filterTiers, setFilterTiers] = useState<string[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
+
+  async function loadData(y: number, m: number, cats = filterCats, tiers = filterTiers) {
     setLoading(true); setError("");
     try {
-      const r = await fetch(`/api/kol-schedules?year=${y}&month=${m}`);
+      const params = new URLSearchParams({ year: String(y), month: String(m) });
+      if (cats.length) params.set("categories", cats.join(","));
+      if (tiers.length) params.set("tiers", tiers.join(","));
+      const r = await fetch(`/api/kol-schedules?${params.toString()}`);
       const j = await r.json();
       if (!r.ok) { setError(j.error || "加载失败"); setData(null); }
       else setData(j as MonthData);
@@ -121,6 +133,13 @@ export default function SchedulePage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function exportExcel() {
+    const params = new URLSearchParams({ year: String(year), month: String(month) });
+    if (filterCats.length) params.set("categories", filterCats.join(","));
+    if (filterTiers.length) params.set("tiers", filterTiers.join(","));
+    window.location.href = `/api/kol-schedules/export?${params.toString()}`;
   }
 
   async function loadDicts() {
@@ -181,6 +200,29 @@ export default function SchedulePage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setFilterOpen(true)}
+            className={`inline-flex items-center gap-1 px-3 py-1.5 text-xs border rounded-md ${
+              filterCats.length || filterTiers.length
+                ? "border-violet-500 bg-violet-50 text-violet-700"
+                : "border-gray-200 text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <Filter size={14} /> 筛选
+            {(filterCats.length + filterTiers.length) > 0 && (
+              <span className="ml-1 text-[10px] tabular-nums">
+                · {filterCats.length + filterTiers.length}
+              </span>
+            )}
+          </button>
+          <button onClick={() => setImportOpen(true)}
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs text-gray-600 border border-gray-200 rounded-md hover:bg-gray-50">
+            <Upload size={14} /> 导入
+          </button>
+          <button onClick={exportExcel}
+            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs text-gray-600 border border-gray-200 rounded-md hover:bg-gray-50">
+            <Download size={14} /> 导出
+          </button>
           <Link href="/dashboard/kol/schedule/settings"
             className="inline-flex items-center gap-1 px-3 py-1.5 text-xs text-gray-600 border border-gray-200 rounded-md hover:bg-gray-50">
             <SettingsIcon size={14} /> 字典管理
@@ -221,6 +263,32 @@ export default function SchedulePage() {
           directions={directions}
           onClose={() => setEditorOpen(false)}
           onSaved={() => { setEditorOpen(false); loadData(year, month); }}
+        />
+      )}
+
+      {filterOpen && (
+        <FilterDialog
+          categories={categories.map((c) => ({ name: c.name, short_name: c.short_name }))}
+          initialSelectedCats={filterCats}
+          initialSelectedTiers={filterTiers}
+          onClose={() => setFilterOpen(false)}
+          onApply={(cats, tiers) => {
+            setFilterCats(cats); setFilterTiers(tiers);
+            setFilterOpen(false);
+            loadData(year, month, cats, tiers);
+          }}
+          onReset={() => {
+            setFilterCats([]); setFilterTiers([]);
+            setFilterOpen(false);
+            loadData(year, month, [], []);
+          }}
+        />
+      )}
+
+      {importOpen && (
+        <ImportWizard
+          onClose={() => setImportOpen(false)}
+          onCompleted={() => { setImportOpen(false); loadData(year, month); }}
         />
       )}
     </>
@@ -326,6 +394,7 @@ function ScheduleEditor({
   const isEdit = !!item;
   const [scheduleDate, setScheduleDate] = useState<string>(item ? "" : defaultDate);
   const [kolName, setKolName] = useState(item?.kolName ?? "");
+  const [kolId, setKolId] = useState<string | null>(item?.kolId ?? null);
   const [category, setCategory] = useState(item?.category ?? "");
   const [direction, setDirection] = useState(item?.categoryDirection ?? "");
   const [tier, setTier] = useState(item?.tier ?? "");
@@ -374,7 +443,7 @@ function ScheduleEditor({
   }, [selectedCategory]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function reset(date: string) {
-    setKolName(""); setDirection(""); setTier(""); setPlatform("");
+    setKolName(""); setKolId(null); setDirection(""); setTier(""); setPlatform("");
     setAmount(""); setStatus("planned"); setPublishUrl(""); setPublishDate("");
     setNotes(""); setScheduleDate(date);
   }
@@ -391,6 +460,7 @@ function ScheduleEditor({
     const payload = {
       schedule_date: scheduleDate,
       kol_name: kolName.trim(),
+      kol_id: kolId,
       category,
       category_direction: direction,
       tier,
@@ -444,18 +514,20 @@ function ScheduleEditor({
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="日期">
-              <input type="date" value={scheduleDate}
-                onChange={(e) => setScheduleDate(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm" />
-            </Field>
-            <Field label="达人名">
-              <input value={kolName} onChange={(e) => setKolName(e.target.value)}
-                placeholder="如：万万也没想到"
-                className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm" />
-            </Field>
-          </div>
+          <Field label="日期">
+            <input type="date" value={scheduleDate}
+              onChange={(e) => setScheduleDate(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm" />
+          </Field>
+
+          <Field label="达人">
+            <KolSelector
+              name={kolName}
+              kolId={kolId}
+              onChange={(n, id) => { setKolName(n); setKolId(id); }}
+              defaultPlatform={platform}
+            />
+          </Field>
 
           <Field label="类目">
             <select value={category} onChange={(e) => { setCategory(e.target.value); setDirection(""); }}
