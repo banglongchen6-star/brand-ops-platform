@@ -433,29 +433,43 @@ function AddDirectionRow({
           className="w-full px-2 py-1 border border-violet-400 rounded text-sm outline-none"
         />
 
-        {open && filtered.length > 0 && (
+        {open && (
           <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-56 overflow-auto">
-            <div className="px-3 py-1.5 text-[10px] text-gray-400 border-b border-gray-100 bg-gray-50/60">
-              字典里已停用 · 点击重新启用
-            </div>
-            {filtered.map((n) => (
-              <button
-                key={n}
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => { setOpen(false); onCommit(n); }}
-                className="w-full text-left px-3 py-2 text-sm hover:bg-violet-50 flex items-center justify-between"
-              >
-                <span className="text-gray-900">{n}</span>
-                <span className="text-[10px] text-gray-400">已停用</span>
-              </button>
-            ))}
+            {filtered.length > 0 && (
+              <>
+                <div className="px-3 py-1.5 text-[10px] text-gray-400 border-b border-gray-100 bg-gray-50/60">
+                  字典里已停用 · 点击重新启用
+                </div>
+                {filtered.map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { setOpen(false); onCommit(n); }}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-violet-50 flex items-center justify-between"
+                  >
+                    <span className="text-gray-900">{n}</span>
+                    <span className="text-[10px] text-gray-400">已停用</span>
+                  </button>
+                ))}
+              </>
+            )}
+            {filtered.length === 0 && inactiveNames.length === 0 && !value.trim() && (
+              <div className="px-3 py-3 text-xs text-gray-400 text-center">
+                字典里没有已停用项 · 直接输入新名称即可创建
+              </div>
+            )}
+            {filtered.length === 0 && inactiveNames.length > 0 && !value.trim() && (
+              <div className="px-3 py-2 text-xs text-gray-400">无匹配 · 继续输入新名称可创建</div>
+            )}
             {value.trim() && !inactiveNames.includes(value.trim()) && (
               <button
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => { setOpen(false); onCommit(null); }}
-                className="w-full text-left px-3 py-2 text-sm hover:bg-violet-50 border-t border-gray-100 text-violet-700 inline-flex items-center gap-1"
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-violet-50 ${
+                  filtered.length > 0 ? "border-t border-gray-100" : ""
+                } text-violet-700 inline-flex items-center gap-1`}
               >
                 <Plus size={12} /> 新建「{value.trim()}」
               </button>
