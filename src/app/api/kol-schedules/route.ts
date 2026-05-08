@@ -183,10 +183,10 @@ export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
   const schedule_date = String(body.schedule_date ?? "").trim();
   const kol_name = String(body.kol_name ?? "").trim();
+  // category 已废弃为可选；DB 字段 NOT NULL，传空字符串落库
   const category = String(body.category ?? "").trim();
   if (!schedule_date) return Response.json({ error: "schedule_date 不能为空" }, { status: 400 });
   if (!kol_name) return Response.json({ error: "kol_name 不能为空" }, { status: 400 });
-  if (!category) return Response.json({ error: "category 不能为空" }, { status: 400 });
 
   const tier = String(body.tier ?? "");
   if (!TIER_VALUES.includes(tier as typeof TIER_VALUES[number])) {

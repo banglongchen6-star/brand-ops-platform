@@ -5,7 +5,7 @@
 
 export const COLUMNS = [
   { key: "schedule_date",     header: "日期",     required: true,  example: "2026-05-01" },
-  { key: "category",          header: "类目",     required: true,  example: "基础（奖励）" },
+  { key: "category",          header: "类目",     required: false, example: "基础（奖励）" },
   { key: "category_direction",header: "方向",     required: false, example: "弹唱" },
   { key: "kol_name",          header: "达人名",   required: true,  example: "万万也没想到" },
   { key: "tier",              header: "层级",     required: false, example: "尾部" },

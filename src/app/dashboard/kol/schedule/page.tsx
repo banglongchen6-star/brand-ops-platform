@@ -10,14 +10,11 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ChevronLeft, ChevronRight, Plus, Settings as SettingsIcon,
-  Loader2, X, Save, Trash2, ExternalLink, Filter, Upload, Download, Copy,
+  Loader2, X, Save, Trash2, ExternalLink, Filter, Upload, Download,
 } from "lucide-react";
 import { KolSelector } from "@/components/kol/KolSelector";
 import { ImportWizard } from "./ImportWizard";
 import { FilterDialog } from "./FilterDialog";
-import { BudgetTable, type BudgetRow, type BudgetTotal } from "./BudgetTable";
-import { useIsAdmin } from "@/lib/useIsAdmin";
-import { supabase } from "@/lib/supabase";
 
 interface ItemDTO {
   id: string;
@@ -51,16 +48,6 @@ interface MonthData {
   weeks: WeekRow[];
   monthTotal: number;
   totalCount: number;
-}
-
-interface Category {
-  id: string;
-  name: string;
-  short_name: string;
-  default_platform: string;
-  default_directions: string[];
-  default_requirements: string;
-  is_active: boolean;
 }
 
 interface Direction { id: string; name: string; is_active: boolean }
@@ -98,12 +85,6 @@ function todayYMD(): string {
   return `${y}-${m}-${day}`;
 }
 
-function prevMonthLabel(year: number, month: number): string {
-  let y = year, m = month - 1;
-  if (m < 1) { m = 12; y -= 1; }
-  return `${y} 年 ${m} 月`;
-}
-
 function nextMonthOf(year: number, month: number): { y: number; m: number } {
   let y = year, m = month + 1;
   if (m > 12) { m = 1; y += 1; }
@@ -120,7 +101,6 @@ export default function SchedulePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [categories, setCategories] = useState<Category[]>([]);
   const [directions, setDirections] = useState<Direction[]>([]);
 
   const [editorOpen, setEditorOpen] = useState(false);
@@ -129,27 +109,8 @@ export default function SchedulePage() {
 
   // 筛选 + 导入
   const [filterOpen, setFilterOpen] = useState(false);
-  const [filterCats, setFilterCats] = useState<string[]>([]);
   const [filterTiers, setFilterTiers] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
-
-  // 月度规划表 + 预算内联编辑
-  const [budgetRows, setBudgetRows] = useState<BudgetRow[]>([]);
-  const [budgetTotal, setBudgetTotal] = useState<BudgetTotal>({ budget: 0, target: 0, spent: 0, count: 0, gap: 0 });
-  const [budgetLoading, setBudgetLoading] = useState(true);
-  const [copyingBudget, setCopyingBudget] = useState(false);
-
-  const isAdmin = useIsAdmin();
-  const [role, setRole] = useState<string | null>(null);
-  useEffect(() => {
-    (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setRole(""); return; }
-      const { data } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
-      setRole(data?.role ?? "");
-    })();
-  }, []);
-  const canEditBudget = isAdmin === true || role === "manager";
 
   async function fetchMonth(y: number, m: number, cats: string[], tiers: string[]): Promise<MonthData | null> {
     const params = new URLSearchParams({ year: String(y), month: String(m) });
@@ -169,12 +130,12 @@ export default function SchedulePage() {
     }
   }
 
-  async function loadData(y: number, m: number, cats = filterCats, tiers = filterTiers) {
+  async function loadData(y: number, m: number, tiers = filterTiers) {
     setLoading(true); setError("");
     const { y: ny, m: nm } = nextMonthOf(y, m);
     const [a, b] = await Promise.all([
-      fetchMonth(y, m, cats, tiers),
-      fetchMonth(ny, nm, cats, tiers),
+      fetchMonth(y, m, [], tiers),
+      fetchMonth(ny, nm, [], tiers),
     ]);
     setData(a);
     setDataNext(b);
@@ -183,130 +144,21 @@ export default function SchedulePage() {
 
   function exportExcel() {
     const params = new URLSearchParams({ year: String(year), month: String(month) });
-    if (filterCats.length) params.set("categories", filterCats.join(","));
     if (filterTiers.length) params.set("tiers", filterTiers.join(","));
     window.location.href = `/api/kol-schedules/export?${params.toString()}`;
   }
 
-  async function loadBudgets(y: number, m: number) {
-    setBudgetLoading(true);
-    try {
-      const r = await fetch(`/api/schedule-budgets?year=${y}&month=${m}`);
-      const j = await r.json();
-      if (r.ok) {
-        setBudgetRows(j.rows || []);
-        setBudgetTotal(j.total || { budget: 0, target: 0, spent: 0, count: 0, gap: 0 });
-      }
-    } finally {
-      setBudgetLoading(false);
-    }
-  }
-
-  // 在规划表里直接新增类目（写到字典）
-  async function addBudgetCategory(name: string) {
-    const sortOrder = (budgetRows[budgetRows.length - 1] && budgetRows.length + 1) || 99;
-    const r = await fetch("/api/schedule-categories", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, short_name: "", sort_order: sortOrder }),
-    });
-    const j = await r.json();
-    if (!r.ok) { alert(j.error || "添加类目失败"); return; }
-    // 刷新字典 + 规划表（字典也要更新，新建排期时下拉里要能看到）
-    await Promise.all([loadDicts(), loadBudgets(year, month)]);
-  }
-
-  // 在规划表里删除（软删除）类目
-  async function removeBudgetCategory(categoryId: string, categoryName: string, hasActuals: boolean) {
-    const warn = hasActuals
-      ? `类目「${categoryName}」当月已有预算或排期，停用后字典里不再显示，但已有的排期数据会保留。\n\n确认停用？`
-      : `停用类目「${categoryName}」？字典里不再显示，已有数据不受影响。`;
-    if (!confirm(warn)) return;
-    const r = await fetch(`/api/schedule-categories/${categoryId}`, { method: "DELETE" });
-    const j = await r.json();
-    if (!r.ok) { alert(j.error || "停用失败"); return; }
-    await Promise.all([loadDicts(), loadBudgets(year, month)]);
-  }
-
-  // 内联保存某行某个字段：乐观更新（先改本地状态，失败再回滚 + 报错）
-  async function saveBudgetField(
-    category: string,
-    field: "budgetAmount" | "targetCount" | "platform" | "requirements" | "functionDisplay",
-    value: string | number | null
-  ) {
-    const prevRows = budgetRows;
-    const prevTotal = budgetTotal;
-    // 乐观更新
-    const newRows = budgetRows.map((r) => {
-      if (r.category !== category) return r;
-      const next = { ...r, hasBudgetRecord: true };
-      if (field === "budgetAmount")    next.budgetAmount = Number(value) || 0;
-      if (field === "targetCount")     next.targetCount = value == null ? null : Number(value);
-      if (field === "platform")        next.platform = String(value ?? "");
-      if (field === "requirements")    next.requirements = String(value ?? "");
-      if (field === "functionDisplay") next.functionDisplay = String(value ?? "");
-      next.gap = next.budgetAmount - next.actualSpent;
-      return next;
-    });
-    setBudgetRows(newRows);
-    if (field === "budgetAmount") {
-      const newBudget = newRows.reduce((a, r) => a + r.budgetAmount, 0);
-      setBudgetTotal((t) => ({ ...t, budget: newBudget, gap: newBudget - t.spent }));
-    } else if (field === "targetCount") {
-      const newTarget = newRows.reduce((a, r) => a + (r.targetCount ?? 0), 0);
-      setBudgetTotal((t) => ({ ...t, target: newTarget }));
-    }
-
-    try {
-      const r = await fetch("/api/schedule-budgets", {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ year, month, category, [field]: value }),
-      });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        throw new Error(j.error || "保存失败");
-      }
-    } catch (e) {
-      // 回滚
-      setBudgetRows(prevRows);
-      setBudgetTotal(prevTotal);
-      alert(e instanceof Error ? e.message : "保存失败");
-    }
-  }
-
-  async function copyFromLastMonth() {
-    if (!confirm(`从上月（${prevMonthLabel(year, month)}）复制预算到 ${year} 年 ${month} 月？已设置过的类目会保留不动。`)) return;
-    setCopyingBudget(true);
-    const r = await fetch("/api/schedule-budgets/copy-from-last-month", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ year, month }),
-    });
-    const j = await r.json();
-    setCopyingBudget(false);
-    if (!r.ok) { alert(j.error || "复制失败"); return; }
-    if (j.copied === 0 && j.skipped === 0) {
-      alert(j.message || "上月没有预算可复制");
-      return;
-    }
-    alert(`复制完成：新增 ${j.copied} 条，跳过已存在的 ${j.skipped} 条`);
-    loadBudgets(year, month);
-  }
-
   async function loadDicts() {
-    const [r1, r2] = await Promise.all([
-      fetch("/api/schedule-categories"),
-      fetch("/api/schedule-directions"),
-    ]);
-    const j1 = await r1.json(); const j2 = await r2.json();
-    if (r1.ok) setCategories((j1.items || []).filter((c: Category) => c.is_active));
-    if (r2.ok) setDirections((j2.items || []).filter((d: Direction) => d.is_active));
+    const r = await fetch("/api/schedule-directions");
+    const j = await r.json();
+    if (r.ok) setDirections((j.items || []).filter((d: Direction) => d.is_active));
   }
 
   useEffect(() => { loadDicts(); }, []);
-  useEffect(() => { loadData(year, month); loadBudgets(year, month); }, [year, month]);
+  useEffect(() => { loadData(year, month); }, [year, month]);
 
-  // 排期变动后同时刷新月度规划表（已花/已排数字会变）
   async function reloadAll() {
-    await Promise.all([loadData(year, month), loadBudgets(year, month)]);
+    await loadData(year, month);
   }
 
   function shift(delta: -1 | 1) {
@@ -357,15 +209,15 @@ export default function SchedulePage() {
           <button
             onClick={() => setFilterOpen(true)}
             className={`inline-flex items-center gap-1 px-3 py-1.5 text-xs border rounded-md ${
-              filterCats.length || filterTiers.length
+              filterTiers.length
                 ? "border-violet-500 bg-violet-50 text-violet-700"
                 : "border-gray-200 text-gray-600 hover:bg-gray-50"
             }`}
           >
             <Filter size={14} /> 筛选
-            {(filterCats.length + filterTiers.length) > 0 && (
+            {filterTiers.length > 0 && (
               <span className="ml-1 text-[10px] tabular-nums">
-                · {filterCats.length + filterTiers.length}
+                · {filterTiers.length}
               </span>
             )}
           </button>
@@ -387,32 +239,6 @@ export default function SchedulePage() {
           </button>
         </div>
       </div>
-
-      {/* 月度规划表 + 复制上月按钮（manager+ 才能编辑/复制） */}
-      <div className="flex items-center justify-end gap-2 mb-2">
-        {canEditBudget && (
-          <button onClick={copyFromLastMonth} disabled={copyingBudget}
-            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] text-gray-600 border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-50">
-            {copyingBudget ? <Loader2 size={11} className="animate-spin" /> : <Copy size={11} />}
-            从 {prevMonthLabel(year, month)} 复制预算
-          </button>
-        )}
-      </div>
-      {budgetLoading ? (
-        <div className="py-6 text-center text-sm text-gray-400 inline-flex items-center justify-center gap-2 w-full">
-          <Loader2 size={14} className="animate-spin" /> 月度规划加载中…
-        </div>
-      ) : (
-        <BudgetTable
-          month={month}
-          rows={budgetRows}
-          total={budgetTotal}
-          canEdit={canEditBudget}
-          onSave={saveBudgetField}
-          onAdd={addBudgetCategory}
-          onRemove={removeBudgetCategory}
-        />
-      )}
 
       {/* 月历主体 */}
       {loading ? (
@@ -464,7 +290,6 @@ export default function SchedulePage() {
         <ScheduleEditor
           item={editorItem}
           defaultDate={editorDate}
-          categories={categories}
           directions={directions}
           onClose={() => setEditorOpen(false)}
           onSaved={() => { setEditorOpen(false); reloadAll(); }}
@@ -473,19 +298,17 @@ export default function SchedulePage() {
 
       {filterOpen && (
         <FilterDialog
-          categories={categories.map((c) => ({ name: c.name, short_name: c.short_name }))}
-          initialSelectedCats={filterCats}
           initialSelectedTiers={filterTiers}
           onClose={() => setFilterOpen(false)}
-          onApply={(cats, tiers) => {
-            setFilterCats(cats); setFilterTiers(tiers);
+          onApply={(tiers) => {
+            setFilterTiers(tiers);
             setFilterOpen(false);
-            loadData(year, month, cats, tiers);
+            loadData(year, month, tiers);
           }}
           onReset={() => {
-            setFilterCats([]); setFilterTiers([]);
+            setFilterTiers([]);
             setFilterOpen(false);
-            loadData(year, month, [], []);
+            loadData(year, month, []);
           }}
         />
       )}
@@ -577,8 +400,8 @@ function ItemCard({ item, onClick }: { item: ItemDTO; onClick: () => void }) {
         {item.tier && <span className="text-[10px] text-gray-400">{item.tier}</span>}
       </div>
       <div className="text-[10px] text-gray-500 truncate">
-        {item.categoryShort}
-        {item.categoryDirection ? `·${item.categoryDirection}` : ""}
+        {item.categoryDirection || "—"}
+        {item.platform ? ` · ${item.platform}` : ""}
       </div>
     </button>
   );
@@ -587,11 +410,10 @@ function ItemCard({ item, onClick }: { item: ItemDTO; onClick: () => void }) {
 // ───────────────────────────────────────── Editor Drawer ─────────────────────────────────────────
 
 function ScheduleEditor({
-  item, defaultDate, categories, directions, onClose, onSaved,
+  item, defaultDate, directions, onClose, onSaved,
 }: {
   item: ItemDTO | null;
   defaultDate: string;
-  categories: Category[];
   directions: Direction[];
   onClose: () => void;
   onSaved: () => void;
@@ -600,7 +422,6 @@ function ScheduleEditor({
   const [scheduleDate, setScheduleDate] = useState<string>(item ? "" : defaultDate);
   const [kolName, setKolName] = useState(item?.kolName ?? "");
   const [kolId, setKolId] = useState<string | null>(item?.kolId ?? null);
-  const [category, setCategory] = useState(item?.category ?? "");
   const [direction, setDirection] = useState(item?.categoryDirection ?? "");
   const [tier, setTier] = useState(item?.tier ?? "");
   const [platform, setPlatform] = useState(item?.platform ?? "");
@@ -626,26 +447,11 @@ function ScheduleEditor({
     });
   }, [item]);
 
-  // 类目联动：选了类目，方向下拉先用类目的 default_directions，再合并字典里其他方向
-  const selectedCategory = useMemo(
-    () => categories.find((c) => c.name === category),
-    [categories, category]
+  // 达人类型选项 = schedule_directions 字典
+  const directionOptions = useMemo(
+    () => directions.map((d) => d.name),
+    [directions]
   );
-  const directionOptions = useMemo(() => {
-    const merged = new Set<string>();
-    if (selectedCategory) {
-      for (const d of selectedCategory.default_directions || []) merged.add(d);
-    }
-    for (const d of directions) merged.add(d.name);
-    return Array.from(merged);
-  }, [selectedCategory, directions]);
-
-  // 选了类目自动填默认平台
-  useEffect(() => {
-    if (selectedCategory && !platform) {
-      setPlatform(selectedCategory.default_platform || "");
-    }
-  }, [selectedCategory]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function reset(date: string) {
     setKolName(""); setKolId(null); setDirection(""); setTier(""); setPlatform("");
@@ -657,7 +463,6 @@ function ScheduleEditor({
     setErr("");
     if (!scheduleDate) return setErr("日期必填");
     if (!kolName.trim()) return setErr("达人名必填");
-    if (!category) return setErr("类目必填");
     const amt = Number(amount);
     if (!Number.isFinite(amt) || amt < 0) return setErr("费用必须为非负数字");
 
@@ -666,8 +471,8 @@ function ScheduleEditor({
       schedule_date: scheduleDate,
       kol_name: kolName.trim(),
       kol_id: kolId,
-      category,
-      category_direction: direction,
+      category: "",                          // 类目已废弃，永远空字符串
+      category_direction: direction,         // 即"达人类型"，存原字段名兼容历史
       tier,
       platform,
       amount: amt,
@@ -734,21 +539,8 @@ function ScheduleEditor({
             />
           </Field>
 
-          <Field label="类目">
-            <select value={category} onChange={(e) => { setCategory(e.target.value); setDirection(""); }}
-              className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm bg-white">
-              <option value="">— 请选择 —</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.name}>{c.name}</option>
-              ))}
-            </select>
-            {selectedCategory?.default_requirements && (
-              <p className="text-[10px] text-gray-400 mt-1">{selectedCategory.default_requirements}</p>
-            )}
-          </Field>
-
           <div className="grid grid-cols-2 gap-3">
-            <Field label="方向">
+            <Field label="达人类型">
               <select value={direction} onChange={(e) => setDirection(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm bg-white">
                 <option value="">—</option>

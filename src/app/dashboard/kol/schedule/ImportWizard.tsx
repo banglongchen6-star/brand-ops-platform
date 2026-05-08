@@ -22,7 +22,6 @@ interface PreviewResp {
     errors: string[];
   }>;
   stats: { total: number; ok: number; withError: number };
-  knownCategories: string[];
 }
 
 interface ParsedRow {

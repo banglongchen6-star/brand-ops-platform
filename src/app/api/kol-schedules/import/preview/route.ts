@@ -13,7 +13,6 @@
 // 写库（避免把文件存服务端的复杂状态）。文件大小硬上限 5MB / 5000 行。
 
 import { requireUser } from "@/lib/requireUser";
-import { getAdminClient } from "@/lib/supabaseAdmin";
 import { COLUMNS, parseDate, parseTier, parseAmount, parseStatus } from "@/lib/scheduleExcel";
 import * as XLSX from "xlsx";
 
@@ -126,12 +125,6 @@ export async function POST(req: Request) {
     (k) => !Object.values(mapping).includes(k)
   );
 
-  // 拉字典里全部的活跃类目，做合法性校验
-  const admin = getAdminClient();
-  const { data: catRows } = await admin
-    .from("schedule_categories").select("name, is_active").eq("is_active", true);
-  const knownCategories = new Set((catRows ?? []).map((r) => r.name as string));
-
   const parsed: ParsedRow[] = [];
   let okCount = 0;
   let errCount = 0;
@@ -158,9 +151,8 @@ export async function POST(req: Request) {
     if (!tierRes.ok) errors.push(tierRes.error);
     if (!statusRes.ok) errors.push(statusRes.error);
 
+    // 类目已废弃为可选；不再校验是否在字典里
     const category = String(get("category") ?? "").trim();
-    if (!category) errors.push("类目不能为空");
-    else if (!knownCategories.has(category)) errors.push(`类目「${category}」不在字典里，需先到字典管理添加`);
 
     const kolName = String(get("kol_name") ?? "").trim();
     if (!kolName) errors.push("达人名不能为空");
@@ -194,6 +186,5 @@ export async function POST(req: Request) {
     headers, mapping, missingRequired,
     rows: parsed,
     stats: { total: parsed.length, ok: okCount, withError: errCount },
-    knownCategories: Array.from(knownCategories),
   });
 }
