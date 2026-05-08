@@ -323,8 +323,6 @@ export default function HomePage() {
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
 
-  // 笔记 → 任务：跳转到任务中心新建表单的 loading 状态
-  const [generatingTaskForNoteId, setGeneratingTaskForNoteId] = useState<string | null>(null);
   // 关联任务的标题映射：taskId → title（删除的任务从这里消失，徽章数量自动更新）
   const [linkedTaskMap, setLinkedTaskMap] = useState<Record<string, string>>({});
   const router = useRouter();
@@ -430,28 +428,20 @@ export default function HomePage() {
     });
   }
 
-  // 点击 ⚡ → AI 生成任务字段 → sessionStorage 保存预填 → 跳到任务中心打开新建任务表单
-  async function handleGenerateTask(noteId: string) {
-    setGeneratingTaskForNoteId(noteId);
-    let prefill = { title: "", description: "", acceptance_criteria: "" };
-    try {
-      const r = await fetch(`/api/notes/${noteId}/generate-task`, { method: "POST" });
-      const j = await r.json();
-      if (r.ok && j.title) {
-        prefill = {
-          title: j.title || "",
-          description: j.description || "",
-          acceptance_criteria: j.acceptance_criteria || "",
-        };
-      } else {
-        // AI 失败 → 弹空表单让用户自己填（按用户偏好 Q3）
-        alert(`AI 生成失败：${j.error || "未知错误"}（已为你打开空白任务表单）`);
-      }
-    } catch {
-      alert("AI 调用失败，已为你打开空白任务表单");
-    } finally {
-      setGeneratingTaskForNoteId(null);
-    }
+  // 点击 → 用笔记内容预填新建任务表单：标题=前 25 字，描述=正文全文（清掉颜色语法），验收为空
+  function handleGenerateTask(noteId: string) {
+    const note = notes.find((n) => n.id === noteId);
+    if (!note) return;
+    const plain = (note.content_md || "")
+      .replace(/\{(red|orange|green|blue|purple|black)\}([\s\S]+?)\{\/(?:red|orange|green|blue|purple|black)\}/g, "$2")
+      .replace(/==([\s\S]+?)==/g, "$1")
+      .replace(/<[^>]+>/g, "")
+      .trim();
+    const prefill = {
+      title: plain.slice(0, 25),
+      description: plain,
+      acceptance_criteria: "",
+    };
     sessionStorage.setItem("home_task_prefill", JSON.stringify(prefill));
     sessionStorage.setItem("home_task_prefill_note_id", noteId);
     router.push("/dashboard/tasks?from_note=1");
@@ -538,7 +528,6 @@ export default function HomePage() {
                     onSaveNote={saveNote}
                     onDeleteNote={deleteNote}
                     onGenerateTask={handleGenerateTask}
-                    generatingTaskForNoteId={generatingTaskForNoteId}
                     linkedTaskMap={linkedTaskMap}
                   />
                 </div>
@@ -562,7 +551,6 @@ export default function HomePage() {
                   onSaveNote={saveNote}
                   onDeleteNote={deleteNote}
                   onGenerateTask={handleGenerateTask}
-                  generatingTaskForNoteId={generatingTaskForNoteId}
                   linkedTaskMap={linkedTaskMap}
                 />
               </div>
@@ -592,7 +580,7 @@ export default function HomePage() {
 // ============ 板块区 ============
 function CategorySection({
   category, notes, collapsed, onToggleCollapse, onAddNote, onCategorySaved, hideAddNote, hideEditCategory,
-  onReorder, editingNoteId, onStartEdit, onCancelEdit, onSaveNote, onDeleteNote, onGenerateTask, generatingTaskForNoteId, linkedTaskMap,
+  onReorder, editingNoteId, onStartEdit, onCancelEdit, onSaveNote, onDeleteNote, onGenerateTask, linkedTaskMap,
 }: {
   category: Category; notes: Note[];
   collapsed: boolean; onToggleCollapse: () => void;
@@ -604,8 +592,7 @@ function CategorySection({
   onCancelEdit: () => void;
   onSaveNote: (id: string, title: string, content: string) => Promise<void>;
   onDeleteNote: (id: string) => Promise<void>;
-  onGenerateTask: (id: string) => Promise<void>;
-  generatingTaskForNoteId: string | null;
+  onGenerateTask: (id: string) => void;
   linkedTaskMap: Record<string, string>;
 }) {
   const [isEditingLabel, setIsEditingLabel] = useState(false);
@@ -720,7 +707,6 @@ function CategorySection({
                     onSave={(title, content) => onSaveNote(n.id, title, content)}
                     onDelete={() => onDeleteNote(n.id)}
                     onGenerateTask={() => onGenerateTask(n.id)}
-                    isGeneratingTask={generatingTaskForNoteId === n.id}
                     linkedTaskMap={linkedTaskMap}
                   />
                 ))}
@@ -752,7 +738,7 @@ function SortableNoteCard(props: React.ComponentProps<typeof NoteCard>) {
 
 
 // ============ 笔记卡片 ============
-function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, onDelete, onGenerateTask, isGeneratingTask, linkedTaskMap, dragHandleProps }: {
+function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, onDelete, onGenerateTask, linkedTaskMap, dragHandleProps }: {
   note: Note;
   index?: number;
   isEditing: boolean;
@@ -760,8 +746,7 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
   onCancelEdit: () => void;
   onSave: (title: string, content: string) => Promise<void>;
   onDelete: () => void;
-  onGenerateTask: () => Promise<void>;
-  isGeneratingTask: boolean;
+  onGenerateTask: () => void;
   linkedTaskMap: Record<string, string>;
   dragHandleProps?: React.HTMLAttributes<HTMLElement>;
 }) {
@@ -969,9 +954,9 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
         </div>
         {/* AI 转任务 / 编辑 / 删除（hover 才显示） */}
         <div className="flex items-center gap-0.5 shrink-0 mt-[3px] opacity-0 group-hover:opacity-100 transition-opacity">
-          <button onClick={onGenerateTask} disabled={isGeneratingTask}
-            className="p-0.5 rounded text-gray-400 hover:text-violet-700 hover:bg-violet-50 disabled:opacity-50" title="AI 转任务">
-            {isGeneratingTask ? <Loader2 size={10} className="animate-spin" /> : <Wand2 size={10} />}
+          <button onClick={onGenerateTask}
+            className="p-0.5 rounded text-gray-400 hover:text-violet-700 hover:bg-violet-50" title="转任务">
+            <Wand2 size={10} />
           </button>
           <button onClick={onStartEdit}
             className="p-0.5 rounded text-gray-400 hover:text-violet-700 hover:bg-violet-50" title="编辑">
