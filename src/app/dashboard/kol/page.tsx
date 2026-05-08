@@ -583,13 +583,9 @@ export default function KolPage() {
   }).length;
 
   return (
-    <div className="p-6 min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">达人营销</h1>
-          <p className="text-sm text-gray-500 mt-1">管理达人资源与合作全流程</p>
-        </div>
+    <>
+      {/* Header（标题已上移到 layout，这里只放右侧按钮） */}
+      <div className="flex justify-end mb-4">
         <button
           onClick={() => setShowAdd(true)}
           className="flex items-center gap-2 bg-violet-600 text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-violet-700 shadow-sm"
@@ -668,6 +664,6 @@ export default function KolPage() {
           onSuccess={fetchKols}
         />
       )}
-    </div>
+    </>
   );
 }

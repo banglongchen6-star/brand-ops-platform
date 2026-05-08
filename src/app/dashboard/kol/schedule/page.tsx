@@ -159,7 +159,7 @@ export default function SchedulePage() {
   }
 
   return (
-    <div className="p-6">
+    <>
       {/* 工具栏 */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
@@ -223,7 +223,7 @@ export default function SchedulePage() {
           onSaved={() => { setEditorOpen(false); loadData(year, month); }}
         />
       )}
-    </div>
+    </>
   );
 }
 
