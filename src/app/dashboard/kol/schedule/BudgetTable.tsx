@@ -41,14 +41,14 @@ function fmtCNY(n: number, opts?: { wan?: boolean }): string {
 }
 
 export function BudgetTable({
-  month, rows, total, canEdit, inactiveDirectionNames = [], onSave, onAdd, onRemove,
+  month, rows, total, canEdit, allDirectionEntries = [], onSave, onAdd, onRemove,
 }: {
   month: number;
   rows: BudgetRow[];
   total: BudgetTotal;
   canEdit: boolean;
-  // 字典里已停用的达人类型名 —— 用于"+ 添加"输入框的下拉建议（点选即重新启用）
-  inactiveDirectionNames?: string[];
+  // 字典里所有的达人类型（含已停用），用于"+ 添加"输入框的下拉建议
+  allDirectionEntries?: { name: string; isActive: boolean }[];
   onSave: (category: string, field: EditableField, value: string | number | null) => Promise<void>;
   onAdd: (name: string) => Promise<void>;
   onRemove: (categoryId: string, categoryName: string, hasActuals: boolean) => Promise<void>;
@@ -191,7 +191,7 @@ export function BudgetTable({
                         inputRef={newInputRef}
                         value={newName}
                         onChange={setNewName}
-                        inactiveNames={inactiveDirectionNames}
+                        allEntries={allDirectionEntries}
                         busy={addingBusy}
                         onCommit={async (picked) => {
                           // 直接选下拉项时，跳过受控 input 状态，commit 立刻用 picked 值
@@ -389,12 +389,12 @@ function TargetCell({
 // ─────────────────────────────────────────── Add Direction Row ───────────────────────────────────────────
 
 function AddDirectionRow({
-  inputRef, value, onChange, inactiveNames, busy, onCommit, onCancel,
+  inputRef, value, onChange, allEntries, busy, onCommit, onCancel,
 }: {
   inputRef: React.RefObject<HTMLInputElement | null>;
   value: string;
   onChange: (v: string) => void;
-  inactiveNames: string[];
+  allEntries: { name: string; isActive: boolean }[];
   busy: boolean;
   onCommit: (picked: string | null) => void;
   onCancel: () => void;
@@ -411,9 +411,11 @@ function AddDirectionRow({
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
 
-  const filtered = value.trim()
-    ? inactiveNames.filter((n) => n.toLowerCase().includes(value.trim().toLowerCase()))
-    : inactiveNames;
+  const trimmed = value.trim();
+  const filtered = trimmed
+    ? allEntries.filter((e) => e.name.toLowerCase().includes(trimmed.toLowerCase()))
+    : allEntries;
+  const exactMatch = trimmed && allEntries.some((e) => e.name === trimmed);
 
   return (
     <div className="flex items-center gap-2" ref={wrapperRef}>
@@ -427,42 +429,44 @@ function AddDirectionRow({
             if (e.key === "Enter") { e.preventDefault(); onCommit(null); }
             else if (e.key === "Escape") { setOpen(false); onCancel(); }
           }}
-          placeholder={inactiveNames.length > 0
-            ? "点开看已停用 · 或输入新名称…"
+          placeholder={allEntries.length > 0
+            ? "点开看字典里的达人类型 · 或输入新名称…"
             : "新达人类型名（如：合唱、舞蹈、料理…）"}
           className="w-full px-2 py-1 border border-violet-400 rounded text-sm outline-none"
         />
 
         {open && (
-          <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-56 overflow-auto">
+          <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-72 overflow-auto">
             {filtered.length > 0 && (
               <>
                 <div className="px-3 py-1.5 text-[10px] text-gray-400 border-b border-gray-100 bg-gray-50/60">
-                  字典里已停用 · 点击重新启用
+                  字典里的达人类型 · 点击直接添加 / 启用
                 </div>
-                {filtered.map((n) => (
+                {filtered.map((it) => (
                   <button
-                    key={n}
+                    key={it.name}
                     type="button"
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => { setOpen(false); onCommit(n); }}
+                    onClick={() => { setOpen(false); onCommit(it.name); }}
                     className="w-full text-left px-3 py-2 text-sm hover:bg-violet-50 flex items-center justify-between"
                   >
-                    <span className="text-gray-900">{n}</span>
-                    <span className="text-[10px] text-gray-400">已停用</span>
+                    <span className="text-gray-900">{it.name}</span>
+                    <span className={`text-[10px] ${it.isActive ? "text-green-600" : "text-gray-400"}`}>
+                      {it.isActive ? "已在表里" : "已停用"}
+                    </span>
                   </button>
                 ))}
               </>
             )}
-            {filtered.length === 0 && inactiveNames.length === 0 && !value.trim() && (
+            {filtered.length === 0 && allEntries.length === 0 && !trimmed && (
               <div className="px-3 py-3 text-xs text-gray-400 text-center">
-                字典里没有已停用项 · 直接输入新名称即可创建
+                字典里没有任何达人类型 · 直接输入新名称即可创建
               </div>
             )}
-            {filtered.length === 0 && inactiveNames.length > 0 && !value.trim() && (
-              <div className="px-3 py-2 text-xs text-gray-400">无匹配 · 继续输入新名称可创建</div>
+            {filtered.length === 0 && allEntries.length > 0 && trimmed && (
+              <div className="px-3 py-2 text-xs text-gray-400">无匹配 · 可创建新类型</div>
             )}
-            {value.trim() && !inactiveNames.includes(value.trim()) && (
+            {trimmed && !exactMatch && (
               <button
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
@@ -471,7 +475,7 @@ function AddDirectionRow({
                   filtered.length > 0 ? "border-t border-gray-100" : ""
                 } text-violet-700 inline-flex items-center gap-1`}
               >
-                <Plus size={12} /> 新建「{value.trim()}」
+                <Plus size={12} /> 新建「{trimmed}」
               </button>
             )}
           </div>
@@ -490,8 +494,8 @@ function AddDirectionRow({
         <X size={14} />
       </button>
       <span className="text-[10px] text-gray-400">
-        {inactiveNames.length > 0
-          ? `${inactiveNames.length} 个已停用 · 点选即启用`
+        {allEntries.length > 0
+          ? `字典里有 ${allEntries.length} 个类型 · 点选即可`
           : "新建后在表里直接填预算/平台/要求"}
       </span>
     </div>

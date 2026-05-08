@@ -411,7 +411,7 @@ export default function SchedulePage() {
           rows={budgetRows}
           total={budgetTotal}
           canEdit={canEditBudget}
-          inactiveDirectionNames={allDirections.filter((d) => !d.is_active).map((d) => d.name)}
+          allDirectionEntries={allDirections.map((d) => ({ name: d.name, isActive: d.is_active }))}
           onSave={saveBudgetField}
           onAdd={addBudgetDirection}
           onRemove={removeBudgetDirection}
