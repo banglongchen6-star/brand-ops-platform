@@ -347,31 +347,40 @@ function CalendarGrid({
           {week.days.map((day) => {
             const isToday = day.date === today;
             return (
-              <div key={day.date}
-                className={`min-h-[110px] border-r border-gray-100 last:border-r-0 p-1.5 group relative
-                  ${day.isCurrentMonth ? "bg-white" : "bg-gray-50/60"}
-                  ${isToday ? "ring-2 ring-violet-500 ring-inset" : ""}`}>
+              <div
+                key={day.date}
+                onClick={() => onCellClick(day.date)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onCellClick(day.date); }
+                }}
+                className={`min-h-[110px] border-r border-gray-100 last:border-r-0 p-1.5 group relative cursor-pointer transition
+                  ${day.isCurrentMonth ? "bg-white hover:bg-violet-50/40" : "bg-gray-50/60 hover:bg-gray-100"}
+                  ${isToday ? "bg-violet-50/60" : ""}`}
+                title="点空白处新增排期"
+              >
                 {/* 日期标头 */}
                 <div className="flex items-center justify-between mb-1">
-                  <span className={`text-[11px] tabular-nums ${day.isCurrentMonth ? "text-gray-700" : "text-gray-400"} ${isToday ? "text-violet-700 font-semibold" : ""}`}>
+                  <span className={`text-[11px] tabular-nums inline-flex items-center gap-1 ${day.isCurrentMonth ? "text-gray-700" : "text-gray-400"} ${isToday ? "text-violet-700 font-semibold" : ""}`}>
                     {Number(day.date.slice(8, 10))}
+                    {isToday && <span className="text-[9px] bg-violet-600 text-white rounded px-1 leading-none py-[1px]">今</span>}
                   </span>
-                  <button
-                    onClick={() => onCellClick(day.date)}
-                    className="opacity-0 group-hover:opacity-100 transition w-4 h-4 inline-flex items-center justify-center text-gray-400 hover:text-violet-700"
-                    title="新增排期"
-                  >
+                  <span className="opacity-0 group-hover:opacity-100 transition text-gray-300 inline-flex items-center justify-center">
                     <Plus size={12} />
-                  </button>
+                  </span>
                 </div>
 
-                {/* 排期卡片 */}
+                {/* 排期卡片 —— 点击事件需要 stopPropagation 避免触发 cell 的新增 */}
                 {day.items.slice(0, 2).map((item) => (
-                  <ItemCard key={item.id} item={item} onClick={() => onItemClick(item, day.date)} />
+                  <ItemCard
+                    key={item.id} item={item}
+                    onClick={(e) => { e.stopPropagation(); onItemClick(item, day.date); }}
+                  />
                 ))}
                 {day.items.length > 2 && (
                   <button
-                    onClick={() => onItemClick(day.items[2], day.date)}
+                    onClick={(e) => { e.stopPropagation(); onItemClick(day.items[2], day.date); }}
                     className="text-[10px] text-gray-500 hover:text-violet-700 ml-1"
                   >
                     + {day.items.length - 2} 条
@@ -386,7 +395,7 @@ function CalendarGrid({
   );
 }
 
-function ItemCard({ item, onClick }: { item: ItemDTO; onClick: () => void }) {
+function ItemCard({ item, onClick }: { item: ItemDTO; onClick: (e: React.MouseEvent) => void }) {
   return (
     <button
       onClick={onClick}
