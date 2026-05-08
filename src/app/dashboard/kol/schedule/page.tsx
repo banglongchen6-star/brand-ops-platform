@@ -10,11 +10,14 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ChevronLeft, ChevronRight, Plus, Settings as SettingsIcon,
-  Loader2, X, Save, Trash2, ExternalLink, Filter, Upload, Download,
+  Loader2, X, Save, Trash2, ExternalLink, Filter, Upload, Download, Copy,
 } from "lucide-react";
 import { KolSelector } from "@/components/kol/KolSelector";
 import { ImportWizard } from "./ImportWizard";
 import { FilterDialog } from "./FilterDialog";
+import { BudgetTable, type BudgetRow, type BudgetTotal } from "./BudgetTable";
+import { useIsAdmin } from "@/lib/useIsAdmin";
+import { supabase } from "@/lib/supabase";
 
 interface ItemDTO {
   id: string;
@@ -85,6 +88,12 @@ function todayYMD(): string {
   return `${y}-${m}-${day}`;
 }
 
+function prevMonthLabel(year: number, month: number): string {
+  let y = year, m = month - 1;
+  if (m < 1) { m = 12; y -= 1; }
+  return `${y} 年 ${m} 月`;
+}
+
 function nextMonthOf(year: number, month: number): { y: number; m: number } {
   let y = year, m = month + 1;
   if (m > 12) { m = 1; y += 1; }
@@ -111,6 +120,24 @@ export default function SchedulePage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [filterTiers, setFilterTiers] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
+
+  // 月度规划表（按"达人类型"分组）
+  const [budgetRows, setBudgetRows] = useState<BudgetRow[]>([]);
+  const [budgetTotal, setBudgetTotal] = useState<BudgetTotal>({ budget: 0, target: 0, spent: 0, count: 0, gap: 0 });
+  const [budgetLoading, setBudgetLoading] = useState(true);
+  const [copyingBudget, setCopyingBudget] = useState(false);
+
+  const isAdmin = useIsAdmin();
+  const [role, setRole] = useState<string | null>(null);
+  useEffect(() => {
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setRole(""); return; }
+      const { data } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
+      setRole(data?.role ?? "");
+    })();
+  }, []);
+  const canEditBudget = isAdmin === true || role === "manager";
 
   async function fetchMonth(y: number, m: number, cats: string[], tiers: string[]): Promise<MonthData | null> {
     const params = new URLSearchParams({ year: String(y), month: String(m) });
@@ -154,11 +181,110 @@ export default function SchedulePage() {
     if (r.ok) setDirections((j.items || []).filter((d: Direction) => d.is_active));
   }
 
+  async function loadBudgets(y: number, m: number) {
+    setBudgetLoading(true);
+    try {
+      const r = await fetch(`/api/schedule-budgets?year=${y}&month=${m}`);
+      const j = await r.json();
+      if (r.ok) {
+        setBudgetRows(j.rows || []);
+        setBudgetTotal(j.total || { budget: 0, target: 0, spent: 0, count: 0, gap: 0 });
+      }
+    } finally {
+      setBudgetLoading(false);
+    }
+  }
+
+  // 内联保存预算字段：乐观更新 + 失败回滚
+  async function saveBudgetField(
+    category: string,
+    field: "budgetAmount" | "targetCount" | "platform" | "requirements" | "functionDisplay",
+    value: string | number | null
+  ) {
+    const prevRows = budgetRows;
+    const prevTotal = budgetTotal;
+    const newRows = budgetRows.map((r) => {
+      if (r.category !== category) return r;
+      const next = { ...r, hasBudgetRecord: true };
+      if (field === "budgetAmount")    next.budgetAmount = Number(value) || 0;
+      if (field === "targetCount")     next.targetCount = value == null ? null : Number(value);
+      if (field === "platform")        next.platform = String(value ?? "");
+      if (field === "requirements")    next.requirements = String(value ?? "");
+      if (field === "functionDisplay") next.functionDisplay = String(value ?? "");
+      next.gap = next.budgetAmount - next.actualSpent;
+      return next;
+    });
+    setBudgetRows(newRows);
+    if (field === "budgetAmount") {
+      const newBudget = newRows.reduce((a, r) => a + r.budgetAmount, 0);
+      setBudgetTotal((t) => ({ ...t, budget: newBudget, gap: newBudget - t.spent }));
+    } else if (field === "targetCount") {
+      const newTarget = newRows.reduce((a, r) => a + (r.targetCount ?? 0), 0);
+      setBudgetTotal((t) => ({ ...t, target: newTarget }));
+    }
+
+    try {
+      const r = await fetch("/api/schedule-budgets", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ year, month, category, [field]: value }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.error || "保存失败");
+      }
+    } catch (e) {
+      setBudgetRows(prevRows);
+      setBudgetTotal(prevTotal);
+      alert(e instanceof Error ? e.message : "保存失败");
+    }
+  }
+
+  // 在规划表里直接新增"达人类型"
+  async function addBudgetDirection(name: string) {
+    const sortOrder = (budgetRows.length || 0) + 1;
+    const r = await fetch("/api/schedule-directions", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, sort_order: sortOrder }),
+    });
+    const j = await r.json();
+    if (!r.ok) { alert(j.error || "添加失败"); return; }
+    await Promise.all([loadDicts(), loadBudgets(year, month)]);
+  }
+
+  async function removeBudgetDirection(directionId: string, name: string, hasActuals: boolean) {
+    const warn = hasActuals
+      ? `达人类型「${name}」当月已有预算或排期，停用后字典里不再显示，但已有数据保留。\n\n确认停用？`
+      : `停用达人类型「${name}」？字典里不再显示，已有数据不受影响。`;
+    if (!confirm(warn)) return;
+    const r = await fetch(`/api/schedule-directions/${directionId}`, {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_active: false }),
+    });
+    const j = await r.json();
+    if (!r.ok) { alert(j.error || "停用失败"); return; }
+    await Promise.all([loadDicts(), loadBudgets(year, month)]);
+  }
+
+  async function copyFromLastMonth() {
+    if (!confirm(`从上月（${prevMonthLabel(year, month)}）复制预算到 ${year} 年 ${month} 月？已设置过的类型会保留不动。`)) return;
+    setCopyingBudget(true);
+    const r = await fetch("/api/schedule-budgets/copy-from-last-month", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ year, month }),
+    });
+    const j = await r.json();
+    setCopyingBudget(false);
+    if (!r.ok) { alert(j.error || "复制失败"); return; }
+    if (j.copied === 0 && j.skipped === 0) { alert(j.message || "上月没有预算可复制"); return; }
+    alert(`复制完成：新增 ${j.copied} 条，跳过已存在的 ${j.skipped} 条`);
+    loadBudgets(year, month);
+  }
+
   useEffect(() => { loadDicts(); }, []);
-  useEffect(() => { loadData(year, month); }, [year, month]);
+  useEffect(() => { loadData(year, month); loadBudgets(year, month); }, [year, month]);
 
   async function reloadAll() {
-    await loadData(year, month);
+    await Promise.all([loadData(year, month), loadBudgets(year, month)]);
   }
 
   function shift(delta: -1 | 1) {
@@ -239,6 +365,32 @@ export default function SchedulePage() {
           </button>
         </div>
       </div>
+
+      {/* 月度规划表（按达人类型分组）+ 复制上月按钮 */}
+      <div className="flex items-center justify-end gap-2 mb-2">
+        {canEditBudget && (
+          <button onClick={copyFromLastMonth} disabled={copyingBudget}
+            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] text-gray-600 border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-50">
+            {copyingBudget ? <Loader2 size={11} className="animate-spin" /> : <Copy size={11} />}
+            从 {prevMonthLabel(year, month)} 复制预算
+          </button>
+        )}
+      </div>
+      {budgetLoading ? (
+        <div className="py-6 text-center text-sm text-gray-400 inline-flex items-center justify-center gap-2 w-full">
+          <Loader2 size={14} className="animate-spin" /> 月度规划加载中…
+        </div>
+      ) : (
+        <BudgetTable
+          month={month}
+          rows={budgetRows}
+          total={budgetTotal}
+          canEdit={canEditBudget}
+          onSave={saveBudgetField}
+          onAdd={addBudgetDirection}
+          onRemove={removeBudgetDirection}
+        />
+      )}
 
       {/* 月历主体 */}
       {loading ? (
