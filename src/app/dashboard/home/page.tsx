@@ -70,13 +70,13 @@ function formatDate(s: string) {
 
 // 将旧的 {color} 语法转成 HTML（编辑器初始化用）
 const SYNTAX_COLOR_HEX: Record<string, string> = {
-  red: "#dc2626", orange: "#f97316", green: "#16a34a", blue: "#2563eb", purple: "#9333ea", black: "#1f2937",
+  red: "#dc2626", orange: "#f97316", green: "#16a34a", blue: "#2563eb", purple: "#9333ea", black: "#374151",
 };
-// 浏览器 style.color 标准化后的 rgb() 格式 → 颜色名（保留 17,24,39 以兼容旧笔记）
+// 浏览器 style.color 标准化后的 rgb() 格式 → 颜色名（保留旧 rgb 以兼容历史笔记）
 const COLOR_RGB_MAP: Record<string, string> = {
   "rgb(220, 38, 38)": "red", "rgb(249, 115, 22)": "orange", "rgb(22, 163, 74)": "green",
   "rgb(37, 99, 235)": "blue", "rgb(147, 51, 234)": "purple",
-  "rgb(31, 41, 55)": "black", "rgb(17, 24, 39)": "black",
+  "rgb(55, 65, 81)": "black", "rgb(31, 41, 55)": "black", "rgb(17, 24, 39)": "black",
   "red": "red", "orange": "orange", "green": "green", "blue": "blue", "purple": "purple", "black": "black",
 };
 // 保存前：DOM 解析 HTML → 干净的 {color} 语法。同时清理破损数据
@@ -203,7 +203,10 @@ function syntaxToHtml(text: string): string {
   const escape = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return segments.map((seg) => {
     let html = escape(seg.text).replace(/\n/g, "<br>");
-    if (seg.color) html = `<span style="color:${SYNTAX_COLOR_HEX[seg.color]};font-weight:600">${html}</span>`;
+    if (seg.color) {
+      const weight = seg.color === "black" ? "400" : "600";
+      html = `<span style="color:${SYNTAX_COLOR_HEX[seg.color]};font-weight:${weight}">${html}</span>`;
+    }
     if (seg.highlight) html = `<span style="background-color:#fef08a;border-radius:2px;padding:0 1px">${html}</span>`;
     return html;
   }).join("");
@@ -248,7 +251,7 @@ function renderMd(md: string): React.ReactNode {
 }
 const COLOR_MAP: Record<string, string> = {
   red: "text-red-600", orange: "text-orange-500",
-  green: "text-green-600", blue: "text-blue-600", purple: "text-purple-600", black: "text-gray-800",
+  green: "text-green-600", blue: "text-blue-600", purple: "text-purple-600", black: "text-gray-700",
 };
 
 // 笔记卡片左侧圆点颜色（按索引循环）
@@ -302,7 +305,10 @@ function renderInline(s: string): React.ReactNode {
       return <span key={k}>{p}</span>;
     });
     let node: React.ReactNode = inner;
-    if (seg.color) node = <span key={`c${i}`} className={`font-semibold ${COLOR_MAP[seg.color]}`}>{node}</span>;
+    if (seg.color) {
+      const weightCls = seg.color === "black" ? "font-normal" : "font-semibold";
+      node = <span key={`c${i}`} className={`${weightCls} ${COLOR_MAP[seg.color]}`}>{node}</span>;
+    }
     if (seg.highlight) node = <mark key={`h${i}`} className="bg-yellow-200 rounded px-0.5 not-italic">{node}</mark>;
     return node;
   });
