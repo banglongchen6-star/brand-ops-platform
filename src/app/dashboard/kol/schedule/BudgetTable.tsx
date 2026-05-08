@@ -72,7 +72,7 @@ export function BudgetTable({
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg mb-4 overflow-hidden">
+    <div className="bg-white border border-gray-200 rounded-lg mb-4">
       <button
         onClick={() => setCollapsed((v) => !v)}
         className="w-full flex items-center justify-between px-4 py-2 bg-gray-50 hover:bg-gray-100 transition border-b border-gray-200"
@@ -178,39 +178,6 @@ export function BudgetTable({
                 );
               })}
 
-              {canEdit && (
-                <tr className="border-b border-gray-50">
-                  <td colSpan={7} className="px-3 py-2">
-                    {!adding ? (
-                      <button onClick={startAdd}
-                        className="text-xs text-violet-700 hover:underline inline-flex items-center gap-1">
-                        <Plus size={12} /> 添加达人类型
-                      </button>
-                    ) : (
-                      <AddDirectionRow
-                        inputRef={newInputRef}
-                        value={newName}
-                        onChange={setNewName}
-                        allEntries={allDirectionEntries}
-                        busy={addingBusy}
-                        onCommit={async (picked) => {
-                          // 直接选下拉项时，跳过受控 input 状态，commit 立刻用 picked 值
-                          if (picked != null) {
-                            setNewName(picked);
-                            setAddingBusy(true);
-                            try { await onAdd(picked); setAdding(false); setNewName(""); }
-                            finally { setAddingBusy(false); }
-                          } else {
-                            commitAdd();
-                          }
-                        }}
-                        onCancel={() => { setAdding(false); setNewName(""); }}
-                      />
-                    )}
-                  </td>
-                </tr>
-              )}
-
               {rows.length === 0 && !canEdit && (
                 <tr>
                   <td colSpan={7} className="px-3 py-8 text-center text-sm text-gray-400">
@@ -244,6 +211,37 @@ export function BudgetTable({
               </tfoot>
             )}
           </table>
+        </div>
+      )}
+
+      {/* 添加达人类型 —— 放在 table 外，避免 overflow 裁切下拉浮层 */}
+      {!collapsed && canEdit && (
+        <div className="px-3 py-2 border-t border-gray-100">
+          {!adding ? (
+            <button onClick={startAdd}
+              className="text-xs text-violet-700 hover:underline inline-flex items-center gap-1">
+              <Plus size={12} /> 添加达人类型
+            </button>
+          ) : (
+            <AddDirectionRow
+              inputRef={newInputRef}
+              value={newName}
+              onChange={setNewName}
+              allEntries={allDirectionEntries}
+              busy={addingBusy}
+              onCommit={async (picked) => {
+                if (picked != null) {
+                  setNewName(picked);
+                  setAddingBusy(true);
+                  try { await onAdd(picked); setAdding(false); setNewName(""); }
+                  finally { setAddingBusy(false); }
+                } else {
+                  commitAdd();
+                }
+              }}
+              onCancel={() => { setAdding(false); setNewName(""); }}
+            />
+          )}
         </div>
       )}
     </div>
