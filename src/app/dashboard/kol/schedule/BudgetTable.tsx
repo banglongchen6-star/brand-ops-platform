@@ -45,8 +45,9 @@ function fmtCNY(n: number, opts?: { wan?: boolean }): string {
 }
 
 export function BudgetTable({
-  rows, total, canEdit, onSave, onAdd, onRemove,
+  month, rows, total, canEdit, onSave, onAdd, onRemove,
 }: {
+  month: number;          // 当前规划的月份（用于标题：5月品宣规划表）
   rows: BudgetRow[];
   total: BudgetTotal;
   canEdit: boolean;
@@ -87,7 +88,7 @@ export function BudgetTable({
         className="w-full flex items-center justify-between px-4 py-2 bg-gray-50 hover:bg-gray-100 transition border-b border-gray-200"
       >
         <span className="text-xs font-medium text-gray-700">
-          月度规划表
+          {month} 月 品宣规划表
           <span className="text-gray-400 font-normal ml-2">
             · {rows.length} 个类目 · 预算 {fmtCNY(total.budget, { wan: true })} / 目标 {total.target} 条
           </span>

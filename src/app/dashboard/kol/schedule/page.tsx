@@ -104,12 +104,19 @@ function prevMonthLabel(year: number, month: number): string {
   return `${y} 年 ${m} 月`;
 }
 
+function nextMonthOf(year: number, month: number): { y: number; m: number } {
+  let y = year, m = month + 1;
+  if (m > 12) { m = 1; y += 1; }
+  return { y, m };
+}
+
 export default function SchedulePage() {
   const today = useMemo(() => new Date(), []);
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth() + 1);
 
   const [data, setData] = useState<MonthData | null>(null);
+  const [dataNext, setDataNext] = useState<MonthData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -144,22 +151,34 @@ export default function SchedulePage() {
   }, []);
   const canEditBudget = isAdmin === true || role === "manager";
 
-  async function loadData(y: number, m: number, cats = filterCats, tiers = filterTiers) {
-    setLoading(true); setError("");
+  async function fetchMonth(y: number, m: number, cats: string[], tiers: string[]): Promise<MonthData | null> {
+    const params = new URLSearchParams({ year: String(y), month: String(m) });
+    if (cats.length) params.set("categories", cats.join(","));
+    if (tiers.length) params.set("tiers", tiers.join(","));
     try {
-      const params = new URLSearchParams({ year: String(y), month: String(m) });
-      if (cats.length) params.set("categories", cats.join(","));
-      if (tiers.length) params.set("tiers", tiers.join(","));
       const r = await fetch(`/api/kol-schedules?${params.toString()}`);
       const j = await r.json();
-      if (!r.ok) { setError(j.error || "加载失败"); setData(null); }
-      else setData(j as MonthData);
+      if (!r.ok) {
+        setError(j.error || "加载失败");
+        return null;
+      }
+      return j as MonthData;
     } catch (e) {
       setError(e instanceof Error ? e.message : "网络错误");
-      setData(null);
-    } finally {
-      setLoading(false);
+      return null;
     }
+  }
+
+  async function loadData(y: number, m: number, cats = filterCats, tiers = filterTiers) {
+    setLoading(true); setError("");
+    const { y: ny, m: nm } = nextMonthOf(y, m);
+    const [a, b] = await Promise.all([
+      fetchMonth(y, m, cats, tiers),
+      fetchMonth(ny, nm, cats, tiers),
+    ]);
+    setData(a);
+    setDataNext(b);
+    setLoading(false);
   }
 
   function exportExcel() {
@@ -369,9 +388,6 @@ export default function SchedulePage() {
         </div>
       </div>
 
-      {/* 4 个统计卡片 */}
-      <StatCards total={budgetTotal} />
-
       {/* 月度规划表 + 复制上月按钮（manager+ 才能编辑/复制） */}
       <div className="flex items-center justify-end gap-2 mb-2">
         {canEditBudget && (
@@ -388,6 +404,7 @@ export default function SchedulePage() {
         </div>
       ) : (
         <BudgetTable
+          month={month}
           rows={budgetRows}
           total={budgetTotal}
           canEdit={canEditBudget}
@@ -404,13 +421,44 @@ export default function SchedulePage() {
         </div>
       ) : error ? (
         <div className="py-8 text-center text-sm text-rose-600">{error}</div>
-      ) : data ? (
-        <CalendarGrid
-          data={data}
-          onCellClick={(date) => openCreate(date)}
-          onItemClick={(item, date) => openEdit(item, date)}
-        />
-      ) : null}
+      ) : (
+        <div className="space-y-4">
+          {data && (
+            <div>
+              <div className="flex items-baseline gap-2 mb-2">
+                <h2 className="text-sm font-semibold text-gray-900 tabular-nums">
+                  {data.year} 年 {data.month} 月
+                </h2>
+                <span className="text-[11px] text-gray-400">
+                  共 {data.totalCount} 条 · ¥{data.monthTotal.toLocaleString("zh-CN")}
+                </span>
+              </div>
+              <CalendarGrid
+                data={data}
+                onCellClick={(date) => openCreate(date)}
+                onItemClick={(item, date) => openEdit(item, date)}
+              />
+            </div>
+          )}
+          {dataNext && (
+            <div>
+              <div className="flex items-baseline gap-2 mb-2">
+                <h2 className="text-sm font-semibold text-gray-900 tabular-nums">
+                  {dataNext.year} 年 {dataNext.month} 月
+                </h2>
+                <span className="text-[11px] text-gray-400">
+                  共 {dataNext.totalCount} 条 · ¥{dataNext.monthTotal.toLocaleString("zh-CN")}
+                </span>
+              </div>
+              <CalendarGrid
+                data={dataNext}
+                onCellClick={(date) => openCreate(date)}
+                onItemClick={(item, date) => openEdit(item, date)}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {editorOpen && (
         <ScheduleEditor
@@ -808,63 +856,3 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-// ─────────────────────────────────────────── Stat Cards ───────────────────────────────────────────
-
-function StatCards({ total }: { total: BudgetTotal }) {
-  const completionPct = total.target > 0
-    ? Math.round((total.count / total.target) * 100)
-    : null;
-
-  return (
-    <div className="grid grid-cols-4 gap-3 mb-4">
-      <StatCard
-        label="本月排期"
-        value={
-          <>
-            <span className="tabular-nums">{total.count}</span>
-            {total.target > 0 && <span className="text-gray-400 text-sm font-normal"> / {total.target} 条</span>}
-          </>
-        }
-      />
-      <StatCard
-        label="已花"
-        value={<span className="tabular-nums">¥{total.spent.toLocaleString("zh-CN")}</span>}
-      />
-      <StatCard
-        label="月预算"
-        value={
-          total.budget > 0
-            ? <span className="tabular-nums">{(total.budget / 10000).toFixed(1).replace(/\.0$/, "")} 万</span>
-            : <span className="text-gray-400 text-base font-normal">未设</span>
-        }
-      />
-      <StatCard
-        label="完成度"
-        value={
-          completionPct == null
-            ? <span className="text-gray-400 text-base font-normal">—</span>
-            : (
-              <div className="w-full">
-                <div className="tabular-nums">{completionPct}%</div>
-                <div className="mt-1 w-full h-1 bg-gray-100 rounded overflow-hidden">
-                  <div
-                    className={`h-full ${completionPct >= 100 ? "bg-green-500" : "bg-violet-500"}`}
-                    style={{ width: `${Math.min(completionPct, 100)}%` }}
-                  />
-                </div>
-              </div>
-            )
-        }
-      />
-    </div>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg px-4 py-3">
-      <div className="text-[11px] text-gray-500">{label}</div>
-      <div className="text-lg font-semibold text-gray-900 mt-1">{value}</div>
-    </div>
-  );
-}
