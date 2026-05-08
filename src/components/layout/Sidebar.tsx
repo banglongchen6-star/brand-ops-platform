@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import {
   LayoutDashboard, ShoppingCart, Users, FileVideo, Store,
   Headphones, BrainCircuit, CheckSquare, Swords, BarChart3,
-  Settings, LogOut, Music2, PenLine,
+  Settings, LogOut, Music2, PenLine, Calendar,
 } from "lucide-react";
 
 const navGroups = [
@@ -18,7 +18,8 @@ const navGroups = [
       { href: "/dashboard/home",       label: "工作笔记", icon: LayoutDashboard },
       { href: "/dashboard/tasks",      label: "任务中心",   icon: CheckSquare, badge: "今日" },
       { href: "/dashboard/sales",      label: "电商销售",   icon: ShoppingCart },
-      { href: "/dashboard/kol",        label: "达人营销",   icon: Users },
+      { href: "/dashboard/kol",          label: "达人营销", icon: Users },
+      { href: "/dashboard/kol/schedule", label: "排期表",   icon: Calendar },
       { href: "/dashboard/content",    label: "内容运营",   icon: FileVideo },
       { href: "/dashboard/articles",   label: "文字内容",   icon: PenLine },
       { href: "/dashboard/channel",    label: "渠道分销",   icon: Store },
@@ -74,6 +75,12 @@ export function Sidebar() {
   const displayRole = roleLabels[profile?.role || ""] || profile?.role || "成员";
   const avatarChar  = displayName[0]?.toUpperCase() || "U";
 
+  // 当前路径下取「最长前缀匹配」的 href —— 避免 /dashboard/kol 把 /dashboard/kol/schedule 一起激活
+  const allHrefs = navGroups.flatMap((g) => g.items.map((i) => i.href));
+  const activeHref = allHrefs
+    .filter((h) => pathname === h || pathname.startsWith(h + "/"))
+    .sort((a, b) => b.length - a.length)[0];
+
   return (
     // fixed + h-screen + overflow-y-auto 实现固定侧边栏
     <aside className="fixed top-0 left-0 h-screen w-56 bg-[#1e1b4b] text-white flex flex-col z-40 overflow-y-auto">
@@ -98,7 +105,7 @@ export function Sidebar() {
               {group.label}
             </div>
             {group.items.map(({ href, label, icon: Icon, badge }) => {
-              const active = pathname.startsWith(href);
+              const active = href === activeHref;
               return (
                 <Link
                   key={href}
