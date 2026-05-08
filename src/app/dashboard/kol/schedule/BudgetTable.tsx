@@ -115,7 +115,7 @@ export function BudgetTable({
                 <th className="text-left px-3 py-2 font-normal">类目</th>
                 <th className="text-left px-3 py-2 font-normal">平台</th>
                 <th className="text-right px-3 py-2 font-normal">预算（万）</th>
-                <th className="text-center px-3 py-2 font-normal">实际 / 目标</th>
+                <th className="text-center px-3 py-2 font-normal">数量</th>
                 <th className="text-left px-3 py-2 font-normal">功能展示</th>
                 <th className="text-left px-3 py-2 font-normal">要求</th>
                 <th className="px-1 py-2 font-normal text-center text-gray-300">{canEdit ? "删除" : ""}</th>
