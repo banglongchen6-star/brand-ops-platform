@@ -187,45 +187,25 @@ export function BudgetTable({
                         <Plus size={12} /> 添加达人类型
                       </button>
                     ) : (
-                      <div className="flex items-center gap-2">
-                        <input
-                          ref={newInputRef}
-                          value={newName}
-                          onChange={(e) => setNewName(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") { e.preventDefault(); commitAdd(); }
-                            else if (e.key === "Escape") { setAdding(false); setNewName(""); }
-                          }}
-                          placeholder={inactiveDirectionNames.length > 0
-                            ? "选已停用的或输入新名称…"
-                            : "新达人类型名（如：合唱、舞蹈、料理…）"}
-                          list="bgt-direction-suggestions"
-                          className="flex-1 max-w-md px-2 py-1 border border-violet-400 rounded text-sm outline-none"
-                        />
-                        {inactiveDirectionNames.length > 0 && (
-                          <datalist id="bgt-direction-suggestions">
-                            {inactiveDirectionNames.map((n) => (
-                              <option key={n} value={n}>已停用 · 选中即重新启用</option>
-                            ))}
-                          </datalist>
-                        )}
-                        <button
-                          onClick={commitAdd} disabled={addingBusy || !newName.trim()}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-violet-600 text-white text-xs disabled:opacity-50 hover:bg-violet-500"
-                        >
-                          {addingBusy ? <Loader2 size={11} className="animate-spin" /> : <Plus size={11} />}
-                          添加
-                        </button>
-                        <button onClick={() => { setAdding(false); setNewName(""); }}
-                          className="p-1 text-gray-400 hover:text-gray-700">
-                          <X size={14} />
-                        </button>
-                        <span className="text-[10px] text-gray-400">
-                          {inactiveDirectionNames.length > 0
-                            ? `字典里有 ${inactiveDirectionNames.length} 个已停用类型，可点输入框看下拉`
-                            : "新建后在表里直接填预算/平台/要求"}
-                        </span>
-                      </div>
+                      <AddDirectionRow
+                        inputRef={newInputRef}
+                        value={newName}
+                        onChange={setNewName}
+                        inactiveNames={inactiveDirectionNames}
+                        busy={addingBusy}
+                        onCommit={async (picked) => {
+                          // 直接选下拉项时，跳过受控 input 状态，commit 立刻用 picked 值
+                          if (picked != null) {
+                            setNewName(picked);
+                            setAddingBusy(true);
+                            try { await onAdd(picked); setAdding(false); setNewName(""); }
+                            finally { setAddingBusy(false); }
+                          } else {
+                            commitAdd();
+                          }
+                        }}
+                        onCancel={() => { setAdding(false); setNewName(""); }}
+                      />
                     )}
                   </td>
                 </tr>
@@ -403,6 +383,104 @@ function TargetCell({
       {value == null ? <span className="text-gray-400">—</span> : value}
       {saving && <Loader2 size={10} className="inline-block ml-1 animate-spin text-gray-400" />}
     </button>
+  );
+}
+
+// ─────────────────────────────────────────── Add Direction Row ───────────────────────────────────────────
+
+function AddDirectionRow({
+  inputRef, value, onChange, inactiveNames, busy, onCommit, onCancel,
+}: {
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  value: string;
+  onChange: (v: string) => void;
+  inactiveNames: string[];
+  busy: boolean;
+  onCommit: (picked: string | null) => void;
+  onCancel: () => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (!wrapperRef.current) return;
+      if (!wrapperRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  const filtered = value.trim()
+    ? inactiveNames.filter((n) => n.toLowerCase().includes(value.trim().toLowerCase()))
+    : inactiveNames;
+
+  return (
+    <div className="flex items-center gap-2" ref={wrapperRef}>
+      <div className="relative flex-1 max-w-md">
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); onCommit(null); }
+            else if (e.key === "Escape") { setOpen(false); onCancel(); }
+          }}
+          placeholder={inactiveNames.length > 0
+            ? "点开看已停用 · 或输入新名称…"
+            : "新达人类型名（如：合唱、舞蹈、料理…）"}
+          className="w-full px-2 py-1 border border-violet-400 rounded text-sm outline-none"
+        />
+
+        {open && filtered.length > 0 && (
+          <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-56 overflow-auto">
+            <div className="px-3 py-1.5 text-[10px] text-gray-400 border-b border-gray-100 bg-gray-50/60">
+              字典里已停用 · 点击重新启用
+            </div>
+            {filtered.map((n) => (
+              <button
+                key={n}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { setOpen(false); onCommit(n); }}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-violet-50 flex items-center justify-between"
+              >
+                <span className="text-gray-900">{n}</span>
+                <span className="text-[10px] text-gray-400">已停用</span>
+              </button>
+            ))}
+            {value.trim() && !inactiveNames.includes(value.trim()) && (
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { setOpen(false); onCommit(null); }}
+                className="w-full text-left px-3 py-2 text-sm hover:bg-violet-50 border-t border-gray-100 text-violet-700 inline-flex items-center gap-1"
+              >
+                <Plus size={12} /> 新建「{value.trim()}」
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <button
+        onClick={() => onCommit(null)}
+        disabled={busy || !value.trim()}
+        className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-violet-600 text-white text-xs disabled:opacity-50 hover:bg-violet-500"
+      >
+        {busy ? <Loader2 size={11} className="animate-spin" /> : <Plus size={11} />}
+        添加
+      </button>
+      <button onClick={onCancel} className="p-1 text-gray-400 hover:text-gray-700">
+        <X size={14} />
+      </button>
+      <span className="text-[10px] text-gray-400">
+        {inactiveNames.length > 0
+          ? `${inactiveNames.length} 个已停用 · 点选即启用`
+          : "新建后在表里直接填预算/平台/要求"}
+      </span>
+    </div>
   );
 }
 
