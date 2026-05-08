@@ -75,8 +75,9 @@ CREATE INDEX IF NOT EXISTS idx_schedule_date     ON kol_schedules(schedule_date)
 CREATE INDEX IF NOT EXISTS idx_schedule_category ON kol_schedules(category);
 CREATE INDEX IF NOT EXISTS idx_schedule_tier     ON kol_schedules(tier);
 CREATE INDEX IF NOT EXISTS idx_schedule_kol      ON kol_schedules(kol_id);
-CREATE INDEX IF NOT EXISTS idx_schedule_year_month
-  ON kol_schedules(date_trunc('month', schedule_date));
+-- 注：原本的 date_trunc('month', schedule_date) 函数索引在 Supabase 上会因
+-- IMMUTABLE 限制建不出来。月度查询用 WHERE schedule_date >= 月初 AND < 下月初
+-- 会自动走 idx_schedule_date，没有性能差距。
 
 ALTER TABLE kol_schedules DISABLE ROW LEVEL SECURITY;
 
