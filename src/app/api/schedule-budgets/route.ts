@@ -19,6 +19,7 @@ import { requireManager } from "@/lib/requireManager";
 import { getAdminClient } from "@/lib/supabaseAdmin";
 
 interface BudgetRow {
+  categoryId: string | null;
   category: string;
   shortName: string;
   budgetAmount: number;
@@ -60,7 +61,7 @@ export async function GET(req: Request) {
   // 1. 类目字典（active）
   const { data: catRows, error: catErr } = await admin
     .from("schedule_categories")
-    .select("name, short_name, default_platform, default_requirements, sort_order, is_active")
+    .select("id, name, short_name, default_platform, default_requirements, sort_order, is_active")
     .order("sort_order", { ascending: true });
   if (catErr) return Response.json({ error: catErr.message }, { status: 500 });
   const activeCats = (catRows ?? []).filter((c) => c.is_active);
@@ -108,6 +109,7 @@ export async function GET(req: Request) {
     const platform = (b?.platform as string) || (c.default_platform as string) || "";
     const requirements = (b?.requirements as string) || (c.default_requirements as string) || "";
     rows.push({
+      categoryId: c.id as string,
       category: c.name as string,
       shortName: (c.short_name as string) || (c.name as string),
       budgetAmount,
@@ -130,6 +132,7 @@ export async function GET(req: Request) {
   for (const [cat, actual] of actualByCat.entries()) {
     if (!knownNames.has(cat)) {
       rows.push({
+        categoryId: null,
         category: cat, shortName: cat,
         budgetAmount: 0, targetCount: null, platform: "", requirements: "",
         actualSpent: actual.spent, actualCount: actual.count,
@@ -165,7 +168,6 @@ export async function PUT(req: Request) {
   }
   if (!category) return Response.json({ error: "category 不能为空" }, { status: 400 });
 
-  // 校验 category 存在且 active
   const admin = getAdminClient();
   const { data: cat } = await admin
     .from("schedule_categories")
@@ -174,33 +176,57 @@ export async function PUT(req: Request) {
     return Response.json({ error: "类目不在字典里或已停用" }, { status: 400 });
   }
 
-  const budgetAmount = body.budgetAmount === "" || body.budgetAmount == null
-    ? 0 : Number(body.budgetAmount);
-  if (!Number.isFinite(budgetAmount) || budgetAmount < 0) {
-    return Response.json({ error: "预算必须为非负数字" }, { status: 400 });
-  }
-  let targetCount: number | null = null;
-  if (body.targetCount !== "" && body.targetCount != null) {
-    const n = Number(body.targetCount);
-    if (!Number.isInteger(n) || n < 0) {
-      return Response.json({ error: "目标条数必须为非负整数" }, { status: 400 });
+  // 部分更新：只校验本次提交的字段；缺失字段从已有记录里读出并保留
+  const patch: Record<string, unknown> = {};
+
+  if ("budgetAmount" in body) {
+    const v = body.budgetAmount === "" || body.budgetAmount == null ? 0 : Number(body.budgetAmount);
+    if (!Number.isFinite(v) || v < 0) {
+      return Response.json({ error: "预算必须为非负数字" }, { status: 400 });
     }
-    targetCount = n;
+    patch.budget_amount = v;
   }
-  const platform = String(body.platform ?? "").trim();
-  const requirements = String(body.requirements ?? "").trim();
-  const notes = String(body.notes ?? "").trim();
+  if ("targetCount" in body) {
+    if (body.targetCount === "" || body.targetCount == null) {
+      patch.target_count = null;
+    } else {
+      const n = Number(body.targetCount);
+      if (!Number.isInteger(n) || n < 0) {
+        return Response.json({ error: "目标条数必须为非负整数" }, { status: 400 });
+      }
+      patch.target_count = n;
+    }
+  }
+  if ("platform" in body)     patch.platform = String(body.platform ?? "").trim();
+  if ("requirements" in body) patch.requirements = String(body.requirements ?? "").trim();
+  if ("notes" in body)        patch.notes = String(body.notes ?? "").trim();
+
+  if (Object.keys(patch).length === 0) {
+    return Response.json({ error: "没有要更新的字段" }, { status: 400 });
+  }
+
+  // 读现存行（可能没有），把 patch 合并上去 upsert
+  const { data: existing } = await admin
+    .from("schedule_budgets")
+    .select("*")
+    .eq("year", year).eq("month", month).eq("category", category)
+    .maybeSingle();
+
+  const merged: Record<string, unknown> = {
+    year, month, category,
+    budget_amount: patch.budget_amount ?? existing?.budget_amount ?? 0,
+    target_count:  "target_count" in patch ? patch.target_count : existing?.target_count ?? null,
+    platform:      patch.platform ?? existing?.platform ?? "",
+    requirements:  patch.requirements ?? existing?.requirements ?? "",
+    notes:         patch.notes ?? existing?.notes ?? "",
+    updated_by: guard.userId,
+    updated_at: new Date().toISOString(),
+  };
+  if (!existing) merged.created_by = guard.userId;
 
   const { data, error } = await admin
     .from("schedule_budgets")
-    .upsert({
-      year, month, category,
-      budget_amount: budgetAmount,
-      target_count: targetCount,
-      platform, requirements, notes,
-      updated_by: guard.userId,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "year,month,category" })
+    .upsert(merged, { onConflict: "year,month,category" })
     .select("*")
     .single();
   if (error) return Response.json({ error: error.message }, { status: 500 });

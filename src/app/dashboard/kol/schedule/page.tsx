@@ -16,7 +16,6 @@ import { KolSelector } from "@/components/kol/KolSelector";
 import { ImportWizard } from "./ImportWizard";
 import { FilterDialog } from "./FilterDialog";
 import { BudgetTable, type BudgetRow, type BudgetTotal } from "./BudgetTable";
-import { BudgetEditor } from "./BudgetEditor";
 import { useIsAdmin } from "@/lib/useIsAdmin";
 import { supabase } from "@/lib/supabase";
 
@@ -127,11 +126,10 @@ export default function SchedulePage() {
   const [filterTiers, setFilterTiers] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
 
-  // 月度规划表 + 预算编辑
+  // 月度规划表 + 预算内联编辑
   const [budgetRows, setBudgetRows] = useState<BudgetRow[]>([]);
   const [budgetTotal, setBudgetTotal] = useState<BudgetTotal>({ budget: 0, target: 0, spent: 0, count: 0, gap: 0 });
   const [budgetLoading, setBudgetLoading] = useState(true);
-  const [editingBudget, setEditingBudget] = useState<BudgetRow | null>(null);
   const [copyingBudget, setCopyingBudget] = useState(false);
 
   const isAdmin = useIsAdmin();
@@ -182,6 +180,76 @@ export default function SchedulePage() {
       }
     } finally {
       setBudgetLoading(false);
+    }
+  }
+
+  // 在规划表里直接新增类目（写到字典）
+  async function addBudgetCategory(name: string) {
+    const sortOrder = (budgetRows[budgetRows.length - 1] && budgetRows.length + 1) || 99;
+    const r = await fetch("/api/schedule-categories", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, short_name: "", sort_order: sortOrder }),
+    });
+    const j = await r.json();
+    if (!r.ok) { alert(j.error || "添加类目失败"); return; }
+    // 刷新字典 + 规划表（字典也要更新，新建排期时下拉里要能看到）
+    await Promise.all([loadDicts(), loadBudgets(year, month)]);
+  }
+
+  // 在规划表里删除（软删除）类目
+  async function removeBudgetCategory(categoryId: string, categoryName: string, hasActuals: boolean) {
+    const warn = hasActuals
+      ? `类目「${categoryName}」当月已有预算或排期，停用后字典里不再显示，但已有的排期数据会保留。\n\n确认停用？`
+      : `停用类目「${categoryName}」？字典里不再显示，已有数据不受影响。`;
+    if (!confirm(warn)) return;
+    const r = await fetch(`/api/schedule-categories/${categoryId}`, { method: "DELETE" });
+    const j = await r.json();
+    if (!r.ok) { alert(j.error || "停用失败"); return; }
+    await Promise.all([loadDicts(), loadBudgets(year, month)]);
+  }
+
+  // 内联保存某行某个字段：乐观更新（先改本地状态，失败再回滚 + 报错）
+  async function saveBudgetField(
+    category: string,
+    field: "budgetAmount" | "targetCount" | "platform" | "requirements",
+    value: string | number | null
+  ) {
+    const prevRows = budgetRows;
+    const prevTotal = budgetTotal;
+    // 乐观更新
+    const newRows = budgetRows.map((r) => {
+      if (r.category !== category) return r;
+      const next = { ...r, hasBudgetRecord: true };
+      if (field === "budgetAmount") next.budgetAmount = Number(value) || 0;
+      if (field === "targetCount")  next.targetCount = value == null ? null : Number(value);
+      if (field === "platform")     next.platform = String(value ?? "");
+      if (field === "requirements") next.requirements = String(value ?? "");
+      next.gap = next.budgetAmount - next.actualSpent;
+      return next;
+    });
+    setBudgetRows(newRows);
+    if (field === "budgetAmount") {
+      const newBudget = newRows.reduce((a, r) => a + r.budgetAmount, 0);
+      setBudgetTotal((t) => ({ ...t, budget: newBudget, gap: newBudget - t.spent }));
+    } else if (field === "targetCount") {
+      const newTarget = newRows.reduce((a, r) => a + (r.targetCount ?? 0), 0);
+      setBudgetTotal((t) => ({ ...t, target: newTarget }));
+    }
+
+    try {
+      const r = await fetch("/api/schedule-budgets", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ year, month, category, [field]: value }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.error || "保存失败");
+      }
+    } catch (e) {
+      // 回滚
+      setBudgetRows(prevRows);
+      setBudgetTotal(prevTotal);
+      alert(e instanceof Error ? e.message : "保存失败");
     }
   }
 
@@ -322,7 +390,9 @@ export default function SchedulePage() {
           rows={budgetRows}
           total={budgetTotal}
           canEdit={canEditBudget}
-          onRowClick={(r) => setEditingBudget(r)}
+          onSave={saveBudgetField}
+          onAdd={addBudgetCategory}
+          onRemove={removeBudgetCategory}
         />
       )}
 
@@ -349,15 +419,6 @@ export default function SchedulePage() {
           directions={directions}
           onClose={() => setEditorOpen(false)}
           onSaved={() => { setEditorOpen(false); reloadAll(); }}
-        />
-      )}
-
-      {editingBudget && (
-        <BudgetEditor
-          year={year} month={month}
-          row={editingBudget}
-          onClose={() => setEditingBudget(null)}
-          onSaved={() => { setEditingBudget(null); loadBudgets(year, month); }}
         />
       )}
 
