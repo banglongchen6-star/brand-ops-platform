@@ -41,12 +41,14 @@ function fmtCNY(n: number, opts?: { wan?: boolean }): string {
 }
 
 export function BudgetTable({
-  month, rows, total, canEdit, onSave, onAdd, onRemove,
+  month, rows, total, canEdit, inactiveDirectionNames = [], onSave, onAdd, onRemove,
 }: {
   month: number;
   rows: BudgetRow[];
   total: BudgetTotal;
   canEdit: boolean;
+  // 字典里已停用的达人类型名 —— 用于"+ 添加"输入框的下拉建议（点选即重新启用）
+  inactiveDirectionNames?: string[];
   onSave: (category: string, field: EditableField, value: string | number | null) => Promise<void>;
   onAdd: (name: string) => Promise<void>;
   onRemove: (categoryId: string, categoryName: string, hasActuals: boolean) => Promise<void>;
@@ -194,9 +196,19 @@ export function BudgetTable({
                             if (e.key === "Enter") { e.preventDefault(); commitAdd(); }
                             else if (e.key === "Escape") { setAdding(false); setNewName(""); }
                           }}
-                          placeholder="新达人类型名（如：合唱、舞蹈、料理…）"
+                          placeholder={inactiveDirectionNames.length > 0
+                            ? "选已停用的或输入新名称…"
+                            : "新达人类型名（如：合唱、舞蹈、料理…）"}
+                          list="bgt-direction-suggestions"
                           className="flex-1 max-w-md px-2 py-1 border border-violet-400 rounded text-sm outline-none"
                         />
+                        {inactiveDirectionNames.length > 0 && (
+                          <datalist id="bgt-direction-suggestions">
+                            {inactiveDirectionNames.map((n) => (
+                              <option key={n} value={n}>已停用 · 选中即重新启用</option>
+                            ))}
+                          </datalist>
+                        )}
                         <button
                           onClick={commitAdd} disabled={addingBusy || !newName.trim()}
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-violet-600 text-white text-xs disabled:opacity-50 hover:bg-violet-500"
@@ -209,7 +221,9 @@ export function BudgetTable({
                           <X size={14} />
                         </button>
                         <span className="text-[10px] text-gray-400">
-                          仅创建类型；预算/平台/要求添加后在表中直接填即可
+                          {inactiveDirectionNames.length > 0
+                            ? `字典里有 ${inactiveDirectionNames.length} 个已停用类型，可点输入框看下拉`
+                            : "新建后在表里直接填预算/平台/要求"}
                         </span>
                       </div>
                     )}

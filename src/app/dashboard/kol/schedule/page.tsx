@@ -53,7 +53,7 @@ interface MonthData {
   totalCount: number;
 }
 
-interface Direction { id: string; name: string; is_active: boolean }
+interface Direction { id: string; name: string; is_active: boolean; sort_order?: number }
 
 const TIERS = ["头部", "中部", "腰部", "尾部", "素人"] as const;
 const STATUS_LABEL: Record<string, string> = {
@@ -111,6 +111,7 @@ export default function SchedulePage() {
   const [error, setError] = useState("");
 
   const [directions, setDirections] = useState<Direction[]>([]);
+  const [allDirections, setAllDirections] = useState<Direction[]>([]); // 含已停用，用于规划表的"+ 添加"自动补全
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorItem, setEditorItem] = useState<ItemDTO | null>(null);
@@ -178,7 +179,11 @@ export default function SchedulePage() {
   async function loadDicts() {
     const r = await fetch("/api/schedule-directions");
     const j = await r.json();
-    if (r.ok) setDirections((j.items || []).filter((d: Direction) => d.is_active));
+    if (r.ok) {
+      const items = (j.items || []) as Direction[];
+      setAllDirections(items);
+      setDirections(items.filter((d) => d.is_active));
+    }
   }
 
   async function loadBudgets(y: number, m: number) {
@@ -239,15 +244,35 @@ export default function SchedulePage() {
     }
   }
 
-  // 在规划表里直接新增"达人类型"
+  // 在规划表里直接新增/启用"达人类型"
+  // 智能处理：
+  //   - 字典里已存在 + 已激活 → 已经在表里了，提示
+  //   - 字典里已存在 + 已停用 → PATCH 重新启用
+  //   - 字典里没有 → POST 新建
   async function addBudgetDirection(name: string) {
-    const sortOrder = (budgetRows.length || 0) + 1;
-    const r = await fetch("/api/schedule-directions", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, sort_order: sortOrder }),
-    });
-    const j = await r.json();
-    if (!r.ok) { alert(j.error || "添加失败"); return; }
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const existing = allDirections.find((d) => d.name === trimmed);
+    if (existing && existing.is_active) {
+      alert(`「${trimmed}」已经在规划表里了`);
+      return;
+    }
+    if (existing && !existing.is_active) {
+      const r = await fetch(`/api/schedule-directions/${existing.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: true }),
+      });
+      const j = await r.json();
+      if (!r.ok) { alert(j.error || "启用失败"); return; }
+    } else {
+      const sortOrder = (allDirections[allDirections.length - 1]?.sort_order ?? 0) + 1;
+      const r = await fetch("/api/schedule-directions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed, sort_order: sortOrder }),
+      });
+      const j = await r.json();
+      if (!r.ok) { alert(j.error || "添加失败"); return; }
+    }
     await Promise.all([loadDicts(), loadBudgets(year, month)]);
   }
 
@@ -386,6 +411,7 @@ export default function SchedulePage() {
           rows={budgetRows}
           total={budgetTotal}
           canEdit={canEditBudget}
+          inactiveDirectionNames={allDirections.filter((d) => !d.is_active).map((d) => d.name)}
           onSave={saveBudgetField}
           onAdd={addBudgetDirection}
           onRemove={removeBudgetDirection}
