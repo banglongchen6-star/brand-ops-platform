@@ -261,15 +261,18 @@ export default function SchedulePage() {
 
   async function removeBudgetDirection(directionId: string, name: string, hasActuals: boolean) {
     const warn = hasActuals
-      ? `达人类型「${name}」当月已有预算或排期，停用后字典里不再显示，但已有数据保留。\n\n确认停用？`
-      : `停用达人类型「${name}」？字典里不再显示，已有数据不受影响。`;
+      ? `删除达人类型「${name}」？\n\n这将同时：\n- 从字典里停用「${name}」\n- 删除所有月份内 category_direction=「${name}」 的排期数据（不可恢复）\n\n确认删除？`
+      : `停用达人类型「${name}」？字典里不再显示。`;
     if (!confirm(warn)) return;
     const r = await fetch(`/api/schedule-directions/${directionId}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ is_active: false }),
+      body: JSON.stringify({ is_active: false, cascadeDeleteSchedules: hasActuals }),
     });
     const j = await r.json();
-    if (!r.ok) { alert(j.error || "停用失败"); return; }
+    if (!r.ok) { alert(j.error || "删除失败"); return; }
+    if (hasActuals && j.deletedSchedules > 0) {
+      alert(`已删除 ${j.deletedSchedules} 条排期数据`);
+    }
     await Promise.all([loadDicts(), loadBudgets(year, month)]);
   }
 
