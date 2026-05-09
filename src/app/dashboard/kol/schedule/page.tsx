@@ -244,35 +244,18 @@ export default function SchedulePage() {
     }
   }
 
-  // 在规划表里直接新增/启用"达人类型"
-  // 智能处理：
-  //   - 字典里已存在 + 已激活 → 已经在表里了，提示
-  //   - 字典里已存在 + 已停用 → PATCH 重新启用
-  //   - 字典里没有 → POST 新建
+  // 在规划表里添加达人类型 —— 服务端 upsert：name 存在则启用，不存在则新建
   async function addBudgetDirection(name: string) {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const existing = allDirections.find((d) => d.name === trimmed);
-    if (existing && existing.is_active) {
-      alert(`「${trimmed}」已经在规划表里了`);
-      return;
-    }
-    if (existing && !existing.is_active) {
-      const r = await fetch(`/api/schedule-directions/${existing.id}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ is_active: true }),
-      });
-      const j = await r.json();
-      if (!r.ok) { alert(j.error || "启用失败"); return; }
-    } else {
-      const sortOrder = (allDirections[allDirections.length - 1]?.sort_order ?? 0) + 1;
-      const r = await fetch("/api/schedule-directions", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed, sort_order: sortOrder }),
-      });
-      const j = await r.json();
-      if (!r.ok) { alert(j.error || "添加失败"); return; }
-    }
+    const sortOrder = (allDirections[allDirections.length - 1]?.sort_order ?? 0) + 1;
+    const r = await fetch("/api/schedule-directions", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: trimmed, sort_order: sortOrder }),
+    });
+    const j = await r.json();
+    if (!r.ok) { alert(j.error || "添加失败"); return; }
+    // 不管是新建/重新启用/已经活跃，都强制刷新一次确保 UI 与 DB 一致
     await Promise.all([loadDicts(), loadBudgets(year, month)]);
   }
 

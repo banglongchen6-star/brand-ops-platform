@@ -16,6 +16,7 @@ export async function GET() {
   return Response.json({ items: data ?? [] });
 }
 
+// 兼容 upsert：name 存在 → 强制 is_active=true；不存在 → 创建
 export async function POST(req: Request) {
   const guard = await requireManager();
   if (!guard.ok) return guard.response;
@@ -25,6 +26,21 @@ export async function POST(req: Request) {
   if (!name) return Response.json({ error: "name 不能为空" }, { status: 400 });
 
   const admin = getAdminClient();
+
+  const { data: existing } = await admin
+    .from("schedule_directions").select("*").eq("name", name).maybeSingle();
+
+  if (existing) {
+    if (existing.is_active) {
+      return Response.json({ item: existing, alreadyActive: true });
+    }
+    const { data: updated, error: upErr } = await admin
+      .from("schedule_directions").update({ is_active: true }).eq("id", existing.id)
+      .select("*").single();
+    if (upErr) return Response.json({ error: upErr.message }, { status: 500 });
+    return Response.json({ item: updated, reactivated: true });
+  }
+
   const { data, error } = await admin
     .from("schedule_directions")
     .insert({
@@ -35,5 +51,5 @@ export async function POST(req: Request) {
     .select("*")
     .single();
   if (error) return Response.json({ error: error.message }, { status: 500 });
-  return Response.json({ item: data });
+  return Response.json({ item: data, created: true });
 }
