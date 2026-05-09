@@ -142,7 +142,10 @@ export function BudgetTable({
                     </td>
 
                     <td className="px-1 py-1 text-center tabular-nums text-gray-700">
-                      {r.actualCount}
+                      <TargetCell
+                        canEdit={canEdit} value={r.targetCount}
+                        onSave={(v) => onSave(r.category, "targetCount", v)}
+                      />
                     </td>
 
                     <td className="px-1 py-1 text-xs">
@@ -200,7 +203,7 @@ export function BudgetTable({
                     {(total.budget / 10000).toFixed(1).replace(/\.0$/, "") || "0"}
                   </td>
                   <td className="px-3 py-2 text-center tabular-nums text-gray-900">
-                    {total.count}
+                    {total.target || "—"}
                   </td>
                   <td className="px-3 py-2 text-xs">
                     {total.gap < 0 ? (
