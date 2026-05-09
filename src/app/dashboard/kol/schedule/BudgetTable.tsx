@@ -115,7 +115,6 @@ export function BudgetTable({
             <tbody>
               {rows.map((r) => {
                 const overspent = r.gap < 0;
-                const targetReached = r.targetCount != null && r.actualCount >= r.targetCount;
                 const isOrphan = !r.categoryId;
                 return (
                   <tr
@@ -142,15 +141,8 @@ export function BudgetTable({
                       />
                     </td>
 
-                    <td className={`px-1 py-1 text-center tabular-nums ${
-                      targetReached ? "text-green-700 font-medium" : "text-gray-700"
-                    }`}>
-                      <span>{r.actualCount}</span>
-                      <span className="text-gray-400"> / </span>
-                      <TargetCell
-                        canEdit={canEdit} value={r.targetCount}
-                        onSave={(v) => onSave(r.category, "targetCount", v)}
-                      />
+                    <td className="px-1 py-1 text-center tabular-nums text-gray-700">
+                      {r.actualCount}
                     </td>
 
                     <td className="px-1 py-1 text-xs">
@@ -209,7 +201,6 @@ export function BudgetTable({
                   </td>
                   <td className="px-3 py-2 text-center tabular-nums text-gray-900">
                     {total.count}
-                    {total.target > 0 && <span className="text-gray-400 font-normal"> / {total.target}</span>}
                   </td>
                   <td className="px-3 py-2 text-xs">
                     {total.gap < 0 ? (
