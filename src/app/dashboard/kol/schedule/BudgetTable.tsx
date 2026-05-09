@@ -116,13 +116,17 @@ export function BudgetTable({
               {rows.map((r) => {
                 const overspent = r.gap < 0;
                 const targetReached = r.targetCount != null && r.actualCount >= r.targetCount;
+                const isOrphan = !r.categoryId;
                 return (
                   <tr
                     key={r.category}
-                    title={r.requirements || ""}
-                    className={`group border-b border-gray-50 last:border-b-0 ${overspent ? "bg-amber-50/30" : ""}`}
+                    title={isOrphan ? `「${r.category}」未在字典 · 点击右侧 + 加入` : (r.requirements || "")}
+                    className={`group border-b border-gray-50 last:border-b-0 ${overspent ? "bg-amber-50/30" : ""} ${isOrphan ? "bg-amber-50/40" : ""}`}
                   >
-                    <td className="px-3 py-2 text-gray-900 truncate">{r.category}</td>
+                    <td className="px-3 py-2 text-gray-900 truncate">
+                      {r.category}
+                      {isOrphan && <span className="ml-1 text-[9px] text-amber-700 align-middle">未在字典</span>}
+                    </td>
 
                     <td className="px-1 py-1">
                       <TextCell
@@ -171,6 +175,15 @@ export function BudgetTable({
                           title={`停用达人类型「${r.category}」`}
                         >
                           <Trash2 size={13} />
+                        </button>
+                      )}
+                      {canEdit && !r.categoryId && (
+                        <button
+                          onClick={() => onAdd(r.category)}
+                          className="text-violet-500 hover:text-violet-700 hover:bg-violet-50 rounded p-1 inline-flex items-center justify-center transition"
+                          title={`「${r.category}」未在字典 · 点击加入并启用`}
+                        >
+                          <Plus size={13} />
                         </button>
                       )}
                     </td>
