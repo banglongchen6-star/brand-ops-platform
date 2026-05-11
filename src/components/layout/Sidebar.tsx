@@ -82,7 +82,7 @@ export function Sidebar() {
 
   return (
     // fixed + h-screen + overflow-y-auto 实现固定侧边栏
-    <aside className="fixed top-0 left-0 h-screen w-56 bg-[#1e1b4b] text-white flex flex-col z-40 overflow-y-auto">
+    <aside className="fixed top-0 left-0 h-screen w-44 bg-[#1e1b4b] text-white flex flex-col z-40 overflow-y-auto">
       {/* Logo */}
       <div className="px-4 py-5 border-b border-white/10 shrink-0">
         <div className="flex items-center gap-2.5">
