@@ -16,7 +16,7 @@ const navGroups = [
     label: "核心业务",
     items: [
       { href: "/dashboard/home",       label: "工作笔记", icon: LayoutDashboard },
-      { href: "/dashboard/tasks",      label: "任务中心",   icon: CheckSquare, badge: "今日" },
+      { href: "/dashboard/tasks",      label: "任务中心",   icon: CheckSquare },
       { href: "/dashboard/sales",      label: "电商销售",   icon: ShoppingCart },
       { href: "/dashboard/kol",        label: "达人营销",   icon: Users, landing: "/dashboard/kol/schedule" },
       { href: "/dashboard/content",    label: "内容运营",   icon: FileVideo },
@@ -30,7 +30,7 @@ const navGroups = [
     items: [
       { href: "/dashboard/competitor", label: "竞品情报",   icon: Swords },
       { href: "/dashboard/data",       label: "数据中心",   icon: BarChart3 },
-      { href: "/dashboard/review",     label: "AI复盘中心", icon: BrainCircuit, badge: "AI" },
+      { href: "/dashboard/review",     label: "AI复盘中心", icon: BrainCircuit },
     ],
   },
   {
@@ -82,7 +82,7 @@ export function Sidebar() {
 
   return (
     // fixed + h-screen + overflow-y-auto 实现固定侧边栏
-    <aside className="fixed top-0 left-0 h-screen w-44 bg-[#1e1b4b] text-white flex flex-col z-40 overflow-y-auto">
+    <aside className="fixed top-0 left-0 h-screen w-36 bg-[#1e1b4b] text-white flex flex-col z-40 overflow-y-auto">
       {/* Logo */}
       <div className="px-4 py-5 border-b border-white/10 shrink-0">
         <div className="flex items-center gap-2.5">
@@ -104,9 +104,10 @@ export function Sidebar() {
               {group.label}
             </div>
             {group.items.map((item) => {
-              const { href, label, icon: Icon, badge } = item;
+              const { href, label, icon: Icon } = item;
               // 可选 landing：点击落到子路径，但 sidebar 高亮仍以 href 为前缀（如达人营销点击进 /kol/schedule）
               const linkHref = (item as { landing?: string }).landing ?? href;
+              const badge = (item as { badge?: string }).badge;
               const active = href === activeHref;
               return (
                 <Link
