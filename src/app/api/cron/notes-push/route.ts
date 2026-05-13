@@ -38,8 +38,9 @@ function nowBeijing(): { hour: number; minute: number; weekday: number } {
   return { hour, minute, weekday };
 }
 
-function snapMinute(m: number): 0 | 30 {
-  return m < 30 ? 0 : 30;
+// 把任意分钟值对齐到 10 分钟槽（0/10/20/30/40/50）
+function snapMinute(m: number): number {
+  return Math.floor(m / 10) * 10;
 }
 
 export async function GET(req: Request) {
@@ -98,24 +99,34 @@ export async function GET(req: Request) {
   const ownerIds = Array.from(byOwner.keys());
   const { data: configs } = await admin
     .from("notification_configs")
-    .select("user_id, pushplus_token_enc, enabled")
+    .select("user_id, pushplus_token_enc, enabled, last_pushed_at")
     .in("user_id", ownerIds);
-  const cfgByUser = new Map<string, { tokenEnc: string; enabled: boolean }>();
+  const cfgByUser = new Map<string, { tokenEnc: string; enabled: boolean; lastPushedAt: string | null }>();
   for (const c of configs ?? []) {
     cfgByUser.set(c.user_id as string, {
       tokenEnc: (c.pushplus_token_enc as string) || "",
       enabled: !!c.enabled,
+      lastPushedAt: (c.last_pushed_at as string) || null,
     });
   }
 
   // 6. 给每个 owner 推送
   const results: Array<{ user_id: string; status: "ok" | "skip" | "error"; reason?: string; notes?: number }> = [];
 
+  const nowMs = Date.now();
   for (const [ownerId, notes] of byOwner.entries()) {
     const cfg = cfgByUser.get(ownerId);
     if (!cfg || !cfg.enabled || !cfg.tokenEnc) {
       results.push({ user_id: ownerId, status: "skip", reason: !cfg ? "无配置" : (!cfg.enabled ? "总开关未启用" : "未配 token") });
       continue;
+    }
+    // 5 分钟内已推过则跳过（防 cron 重试 / 提前触发导致重复推送）
+    if (cfg.lastPushedAt) {
+      const last = new Date(cfg.lastPushedAt).getTime();
+      if (nowMs - last < 5 * 60 * 1000) {
+        results.push({ user_id: ownerId, status: "skip", reason: "5 分钟内已推过" });
+        continue;
+      }
     }
     try {
       const token = decryptKey(cfg.tokenEnc);

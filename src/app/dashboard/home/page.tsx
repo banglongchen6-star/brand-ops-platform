@@ -1068,7 +1068,9 @@ function NotePushPopover({ note, onClose, onUpdated }: {
   const wasEnabled = !!note.push_enabled;
   const [frequency, setFrequency] = useState<"daily" | "weekly">(note.push_frequency ?? "daily");
   const [hour, setHour] = useState<number>(note.push_hour ?? 9);
-  const [minute, setMinute] = useState<0 | 30>((note.push_minute === 30 ? 30 : 0));
+  const [minute, setMinute] = useState<number>(
+    [0, 10, 20, 30, 40, 50].includes(note.push_minute ?? 0) ? (note.push_minute ?? 0) : 0
+  );
   const [weekday, setWeekday] = useState<number>(note.push_weekday ?? 1);
   const [saving, setSaving] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -1196,10 +1198,14 @@ function NotePushPopover({ note, onClose, onUpdated }: {
               ))}
             </select>
             <span className="text-gray-400">:</span>
-            <select value={minute} onChange={(e) => setMinute(Number(e.target.value) as 0 | 30)}
+            <select value={minute} onChange={(e) => setMinute(Number(e.target.value))}
               className="flex-1 px-3 py-1.5 border border-gray-200 rounded-md bg-white text-sm">
               <option value={0}>00 分</option>
+              <option value={10}>10 分</option>
+              <option value={20}>20 分</option>
               <option value={30}>30 分</option>
+              <option value={40}>40 分</option>
+              <option value={50}>50 分</option>
             </select>
           </div>
         </div>
