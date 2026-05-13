@@ -52,8 +52,9 @@ export async function sendPushPlus(opts: {
 }
 
 // 把多条笔记拼成一条 markdown 推送
+// 优先用 push_summary（用户专门写的推送摘要）；为空才用完整 content_md
 export function buildNotesPushContent(
-  notes: Array<{ title: string; content_md: string; date: string; updated_at?: string }>,
+  notes: Array<{ title: string; content_md: string; push_summary?: string; date: string; updated_at?: string }>,
 ): { title: string; content: string } {
   const today = new Date();
   const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
@@ -63,7 +64,8 @@ export function buildNotesPushContent(
     : `📌 关注笔记 ${notes.length} 条 · ${dateStr}`;
 
   const sections = notes.map((n) => {
-    const body = (n.content_md || "_（无内容）_").trim();
+    const summary = (n.push_summary || "").trim();
+    const body = summary || (n.content_md || "_（无内容）_").trim();
     return `## ${n.title || "速记"}\n\n${body}`;
   });
   const content = sections.join("\n\n---\n\n");

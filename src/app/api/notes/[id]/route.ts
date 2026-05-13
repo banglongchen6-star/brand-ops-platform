@@ -4,7 +4,7 @@ import { getAdminClient } from "@/lib/supabaseAdmin";
 
 const EDITABLE = [
   "title", "content_md", "date", "tags", "is_archived", "category_id", "sort_order",
-  "push_enabled", "push_frequency", "push_hour", "push_minute", "push_weekday",
+  "push_enabled", "push_frequency", "push_hour", "push_minute", "push_weekday", "push_summary",
 ] as const;
 
 async function ensureOwner(id: string, userId: string) {

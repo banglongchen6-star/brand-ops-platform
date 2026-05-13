@@ -32,7 +32,7 @@ export async function POST() {
   // 2. 取该用户当前标记 push_enabled 的笔记预览（最多 3 条，作为测试展示）
   const { data: notes } = await admin
     .from("personal_notes")
-    .select("title, content_md, date, updated_at")
+    .select("title, content_md, push_summary, date, updated_at")
     .eq("owner_id", guard.userId)
     .eq("push_enabled", true)
     .eq("is_archived", false)
@@ -42,6 +42,7 @@ export async function POST() {
   const previewNotes = (notes ?? []).map((n) => ({
     title: (n.title as string) || "速记",
     content_md: (n.content_md as string) || "",
+    push_summary: (n.push_summary as string) || "",
     date: (n.date as string) || "",
     updated_at: (n.updated_at as string) || undefined,
   }));

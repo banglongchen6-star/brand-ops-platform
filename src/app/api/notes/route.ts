@@ -13,7 +13,7 @@ export async function GET(req: Request) {
 
   const admin = getAdminClient();
   let q = admin.from("personal_notes")
-    .select("id, date, title, content_md, tags, category_id, sort_order, is_archived, linked_task_ids, push_enabled, push_frequency, push_hour, push_minute, push_weekday, last_detect_len, last_detect_at, created_at, updated_at")
+    .select("id, date, title, content_md, tags, category_id, sort_order, is_archived, linked_task_ids, push_enabled, push_frequency, push_hour, push_minute, push_weekday, push_summary, last_detect_len, last_detect_at, created_at, updated_at")
     .eq("owner_id", guard.userId)
     .eq("is_archived", false)
     .order("sort_order", { ascending: true, nullsFirst: false })
@@ -26,7 +26,20 @@ export async function GET(req: Request) {
   if (error) {
     // 字段缺失兼容回退 —— 分层尝试，避免丢 category_id
     if (error.code === "42703" || /column .* does not exist/i.test(error.message)) {
-      // 1) 先尝试去掉 push 系列字段（migration p2 没跑），但保留 category_id / push_enabled
+      // 1) 先尝试只去掉 push_summary（p4 没跑），其他 push 字段保留
+      let qbSum = admin.from("personal_notes")
+        .select("id, date, title, content_md, tags, category_id, sort_order, is_archived, linked_task_ids, push_enabled, push_frequency, push_hour, push_minute, push_weekday, last_detect_len, last_detect_at, created_at, updated_at")
+        .eq("owner_id", guard.userId)
+        .eq("is_archived", false)
+        .order("sort_order", { ascending: true, nullsFirst: false })
+        .order("created_at", { ascending: true })
+        .limit(limit);
+      if (date) qbSum = qbSum.eq("date", date);
+      if (categoryId) qbSum = qbSum.eq("category_id", categoryId);
+      const rSum = await qbSum;
+      if (!rSum.error) return Response.json({ notes: rSum.data ?? [], degraded: "no_push_summary" });
+
+      // 2) 再去掉 push 系列字段（migration p2 没跑），但保留 category_id / push_enabled
       let qb = admin.from("personal_notes")
         .select("id, date, title, content_md, tags, category_id, sort_order, is_archived, linked_task_ids, push_enabled, last_detect_len, last_detect_at, created_at, updated_at")
         .eq("owner_id", guard.userId)
@@ -39,7 +52,7 @@ export async function GET(req: Request) {
       const r2 = await qb;
       if (!r2.error) return Response.json({ notes: r2.data ?? [], degraded: "no_push_schedule" });
 
-      // 2) 再尝试不带 push_enabled（连最早一版 push 字段也没跑）
+      // 3) 再尝试不带 push_enabled（连最早一版 push 字段也没跑）
       let qb2 = admin.from("personal_notes")
         .select("id, date, title, content_md, tags, category_id, sort_order, is_archived, linked_task_ids, last_detect_len, last_detect_at, created_at, updated_at")
         .eq("owner_id", guard.userId)
@@ -52,7 +65,7 @@ export async function GET(req: Request) {
       const r3 = await qb2;
       if (!r3.error) return Response.json({ notes: r3.data ?? [], degraded: "no_push" });
 
-      // 3) 最后才掉 category_id（最老的 schema）
+      // 4) 最后才掉 category_id（最老的 schema）
       const r4 = await admin.from("personal_notes")
         .select("id, date, title, content_md, tags, is_archived, last_detect_len, last_detect_at, created_at, updated_at")
         .eq("owner_id", guard.userId)

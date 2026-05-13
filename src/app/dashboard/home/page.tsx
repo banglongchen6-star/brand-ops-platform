@@ -41,6 +41,7 @@ interface Note {
   push_hour?: number;
   push_minute?: number;
   push_weekday?: number | null;
+  push_summary?: string;
   updated_at: string;
   created_at: string;
 }
@@ -778,6 +779,7 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
     push_hour: number;
     push_minute: number;
     push_weekday: number | null;
+    push_summary: string;
   }) {
     setPushEnabled(next.push_enabled);
     note.push_enabled = next.push_enabled;
@@ -785,6 +787,7 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
     note.push_hour = next.push_hour;
     note.push_minute = next.push_minute;
     note.push_weekday = next.push_weekday;
+    note.push_summary = next.push_summary;
   }
   // 标记编辑器是否已初始化，防止 note 数据变化导致编辑中的内容被覆盖
   const editorInitialized = useRef(false);
@@ -1063,6 +1066,7 @@ function NotePushPopover({ note, onClose, onUpdated }: {
     push_hour: number;
     push_minute: number;
     push_weekday: number | null;
+    push_summary: string;
   }) => void;
 }) {
   const wasEnabled = !!note.push_enabled;
@@ -1072,6 +1076,7 @@ function NotePushPopover({ note, onClose, onUpdated }: {
     [0, 10, 20, 30, 40, 50].includes(note.push_minute ?? 0) ? (note.push_minute ?? 0) : 0
   );
   const [weekday, setWeekday] = useState<number>(note.push_weekday ?? 1);
+  const [summary, setSummary] = useState<string>(note.push_summary ?? "");
   const [saving, setSaving] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -1091,6 +1096,7 @@ function NotePushPopover({ note, onClose, onUpdated }: {
     push_hour: number;
     push_minute: number;
     push_weekday: number | null;
+    push_summary: string;
   }) {
     setSaving(true);
     try {
@@ -1116,10 +1122,11 @@ function NotePushPopover({ note, onClose, onUpdated }: {
       push_hour: hour,
       push_minute: minute,
       push_weekday: frequency === "weekly" ? weekday : null,
+      push_summary: summary.trim(),
     });
   }
 
-  // 停用 = enabled 设为 false（保留 frequency/time 配置，方便以后再启用）
+  // 停用 = enabled 设为 false（保留 frequency/time/summary 配置，方便以后再启用）
   async function disable() {
     await patch({
       push_enabled: false,
@@ -1127,6 +1134,7 @@ function NotePushPopover({ note, onClose, onUpdated }: {
       push_hour: hour,
       push_minute: minute,
       push_weekday: frequency === "weekly" ? weekday : null,
+      push_summary: summary.trim(),
     });
   }
 
@@ -1150,8 +1158,23 @@ function NotePushPopover({ note, onClose, onUpdated }: {
         </div>
 
         <p className="text-[11px] text-gray-400 mb-3 leading-relaxed">
-          本条笔记的推送时间。token 在 系统设置 → 消息推送 一次性配置。
+          本条笔记的推送时间和内容。token 在 系统设置 → 消息推送 一次性配置。
         </p>
+
+        {/* 推送摘要 */}
+        <div className="mb-3">
+          <div className="flex items-baseline justify-between mb-1">
+            <span className="text-xs text-gray-500">推送内容</span>
+            <span className="text-[10px] text-gray-400">{summary.length} 字 · 留空则推送笔记完整内容</span>
+          </div>
+          <textarea
+            value={summary}
+            onChange={(e) => setSummary(e.target.value)}
+            rows={3}
+            placeholder="自定义推送到微信的文字。留空就推完整笔记。"
+            className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm resize-none focus:outline-none focus:border-violet-400"
+          />
+        </div>
 
         {/* 频率 */}
         <div className="mb-3">

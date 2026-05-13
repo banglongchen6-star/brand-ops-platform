@@ -24,6 +24,7 @@ interface NoteRow {
   owner_id: string;
   title: string;
   content_md: string;
+  push_summary?: string;
   date: string;
   updated_at: string;
 }
@@ -63,7 +64,7 @@ export async function GET(req: Request) {
   // 注意：weekly 的过滤在 JS 端做（Supabase 客户端 .or 写起来啰嗦，量也不大）
   const { data: rawNotes, error } = await admin
     .from("personal_notes")
-    .select("id, owner_id, title, content_md, date, updated_at, push_frequency, push_weekday")
+    .select("id, owner_id, title, content_md, push_summary, date, updated_at, push_frequency, push_weekday")
     .eq("push_enabled", true)
     .eq("push_hour", hour)
     .eq("push_minute", slot)
@@ -133,6 +134,7 @@ export async function GET(req: Request) {
       const preview = notes.map((n) => ({
         title: n.title || "速记",
         content_md: n.content_md || "",
+        push_summary: n.push_summary || "",
         date: n.date || "",
         updated_at: n.updated_at,
       }));
