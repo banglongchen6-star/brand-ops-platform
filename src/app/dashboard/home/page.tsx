@@ -756,8 +756,29 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
   const [content, setContent] = useState(note.content_md);
   const [saving, setSaving] = useState(false);
   const [showLinkedTasks, setShowLinkedTasks] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(!!note.push_enabled);
+  // 上层 props 的 push_enabled 变了（如刷新后），同步到本地 state
+  useEffect(() => { setPushEnabled(!!note.push_enabled); }, [note.push_enabled]);
   const editorRef = useRef<HTMLDivElement>(null);
   const dotColor = DOT_COLORS[(index ?? 0) % DOT_COLORS.length];
+
+  // 切换推送开关（用本地 state 立刻 re-render，再异步 PATCH）
+  async function togglePush() {
+    const next = !pushEnabled;
+    setPushEnabled(next);
+    note.push_enabled = next;  // 同步到 prop，避免父组件下次 re-render 还原
+    try {
+      const r = await fetch(`/api/notes/${note.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ push_enabled: next }),
+      });
+      if (!r.ok) throw new Error("save failed");
+    } catch {
+      // 失败回滚
+      setPushEnabled(!next);
+      note.push_enabled = !next;
+    }
+  }
   // 标记编辑器是否已初始化，防止 note 数据变化导致编辑中的内容被覆盖
   const editorInitialized = useRef(false);
 
@@ -882,25 +903,18 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
         <div className="mt-2 flex items-center gap-1.5">
           <span className="text-[10px] text-gray-400">{content.replace(/<[^>]+>/g, "").length} 字</span>
           <button
-            onClick={async () => {
-              const next = !note.push_enabled;
-              note.push_enabled = next;
-              await fetch(`/api/notes/${note.id}`, {
-                method: "PATCH", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ push_enabled: next }),
-              });
-            }}
+            onClick={togglePush}
             type="button"
             className={cn(
               "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border transition",
-              note.push_enabled
+              pushEnabled
                 ? "border-violet-400 bg-violet-100 text-violet-700"
                 : "border-gray-200 text-gray-500 hover:border-violet-300 hover:text-violet-600",
             )}
-            title={note.push_enabled ? "已加入定时推送 · 点击取消" : "加入定时推送（按系统设置中的频率）"}
+            title={pushEnabled ? "已加入定时推送 · 点击取消" : "加入定时推送（按系统设置中的频率）"}
           >
-            <Bell size={10} fill={note.push_enabled ? "currentColor" : "none"} />
-            {note.push_enabled ? "已加入推送" : "加入推送"}
+            <Bell size={10} fill={pushEnabled ? "currentColor" : "none"} />
+            {pushEnabled ? "已加入推送" : "加入推送"}
           </button>
           <div className="flex-1" />
           <button onClick={onCancelEdit} disabled={saving}
@@ -977,24 +991,16 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
         </div>
         {/* 推送铃铛（已开启时常驻，未开启时 hover 显示） */}
         <button
-          onClick={async () => {
-            const next = !note.push_enabled;
-            // 乐观更新（直接改 note 对象的引用 + 调 API）
-            note.push_enabled = next;
-            await fetch(`/api/notes/${note.id}`, {
-              method: "PATCH", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ push_enabled: next }),
-            });
-          }}
+          onClick={togglePush}
           className={cn(
             "p-0.5 rounded shrink-0 mt-[3px] transition-all",
-            note.push_enabled
+            pushEnabled
               ? "text-violet-600 opacity-100 hover:bg-violet-50"
               : "text-gray-300 opacity-0 group-hover:opacity-100 hover:text-violet-600 hover:bg-violet-50",
           )}
-          title={note.push_enabled ? "已加入定时推送 · 点击取消" : "加入定时推送（按系统设置中的频率）"}
+          title={pushEnabled ? "已加入定时推送 · 点击取消" : "加入定时推送（按系统设置中的频率）"}
         >
-          <Bell size={11} fill={note.push_enabled ? "currentColor" : "none"} />
+          <Bell size={11} fill={pushEnabled ? "currentColor" : "none"} />
         </button>
 
         {/* AI 转任务 / 编辑 / 删除（hover 才显示） */}
