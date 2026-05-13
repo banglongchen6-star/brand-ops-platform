@@ -37,6 +37,10 @@ interface Note {
   sort_order: number | null;
   linked_task_ids?: string[];
   push_enabled?: boolean;
+  push_frequency?: "daily" | "weekly";
+  push_hour?: number;
+  push_minute?: number;
+  push_weekday?: number | null;
   updated_at: string;
   created_at: string;
 }
@@ -757,27 +761,30 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
   const [saving, setSaving] = useState(false);
   const [showLinkedTasks, setShowLinkedTasks] = useState(false);
   const [pushEnabled, setPushEnabled] = useState(!!note.push_enabled);
+  const [pushPopoverOpen, setPushPopoverOpen] = useState(false);
   // 上层 props 的 push_enabled 变了（如刷新后），同步到本地 state
   useEffect(() => { setPushEnabled(!!note.push_enabled); }, [note.push_enabled]);
   const editorRef = useRef<HTMLDivElement>(null);
   const dotColor = DOT_COLORS[(index ?? 0) % DOT_COLORS.length];
 
-  // 切换推送开关（用本地 state 立刻 re-render，再异步 PATCH）
-  async function togglePush() {
-    const next = !pushEnabled;
-    setPushEnabled(next);
-    note.push_enabled = next;  // 同步到 prop，避免父组件下次 re-render 还原
-    try {
-      const r = await fetch(`/api/notes/${note.id}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ push_enabled: next }),
-      });
-      if (!r.ok) throw new Error("save failed");
-    } catch {
-      // 失败回滚
-      setPushEnabled(!next);
-      note.push_enabled = !next;
-    }
+  // 点击铃铛 → 打开推送设置弹层（不再单纯 toggle）
+  function onBellClick() {
+    setPushPopoverOpen((v) => !v);
+  }
+  // 弹层里更新设置回调
+  function onPushUpdated(next: {
+    push_enabled: boolean;
+    push_frequency: "daily" | "weekly";
+    push_hour: number;
+    push_minute: number;
+    push_weekday: number | null;
+  }) {
+    setPushEnabled(next.push_enabled);
+    note.push_enabled = next.push_enabled;
+    note.push_frequency = next.push_frequency;
+    note.push_hour = next.push_hour;
+    note.push_minute = next.push_minute;
+    note.push_weekday = next.push_weekday;
   }
   // 标记编辑器是否已初始化，防止 note 数据变化导致编辑中的内容被覆盖
   const editorInitialized = useRef(false);
@@ -902,20 +909,29 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
         />
         <div className="mt-2 flex items-center gap-1.5">
           <span className="text-[10px] text-gray-400">{content.replace(/<[^>]+>/g, "").length} 字</span>
-          <button
-            onClick={togglePush}
-            type="button"
-            className={cn(
-              "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border transition",
-              pushEnabled
-                ? "border-violet-400 bg-violet-100 text-violet-700"
-                : "border-gray-200 text-gray-500 hover:border-violet-300 hover:text-violet-600",
+          <div className="relative">
+            <button
+              onClick={onBellClick}
+              type="button"
+              className={cn(
+                "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border transition",
+                pushEnabled
+                  ? "border-violet-400 bg-violet-100 text-violet-700"
+                  : "border-gray-200 text-gray-500 hover:border-violet-300 hover:text-violet-600",
+              )}
+              title="推送设置"
+            >
+              <Bell size={10} fill={pushEnabled ? "currentColor" : "none"} />
+              {pushEnabled ? "已加入推送" : "推送设置"}
+            </button>
+            {pushPopoverOpen && (
+              <NotePushPopover
+                note={note}
+                onClose={() => setPushPopoverOpen(false)}
+                onUpdated={onPushUpdated}
+              />
             )}
-            title={pushEnabled ? "已加入定时推送 · 点击取消" : "加入定时推送（按系统设置中的频率）"}
-          >
-            <Bell size={10} fill={pushEnabled ? "currentColor" : "none"} />
-            {pushEnabled ? "已加入推送" : "加入推送"}
-          </button>
+          </div>
           <div className="flex-1" />
           <button onClick={onCancelEdit} disabled={saving}
             className="px-2 py-1 text-[10px] border border-gray-200 rounded text-gray-700 hover:bg-gray-50">
@@ -990,18 +1006,27 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
           )}
         </div>
         {/* 推送铃铛（已开启时常驻，未开启时 hover 显示） */}
-        <button
-          onClick={togglePush}
-          className={cn(
-            "p-0.5 rounded shrink-0 mt-[3px] transition-all",
-            pushEnabled
-              ? "text-violet-600 opacity-100 hover:bg-violet-50"
-              : "text-gray-300 opacity-0 group-hover:opacity-100 hover:text-violet-600 hover:bg-violet-50",
+        <div className="relative shrink-0 mt-[3px]">
+          <button
+            onClick={onBellClick}
+            className={cn(
+              "p-0.5 rounded transition-all",
+              pushEnabled
+                ? "text-violet-600 opacity-100 hover:bg-violet-50"
+                : "text-gray-300 opacity-0 group-hover:opacity-100 hover:text-violet-600 hover:bg-violet-50",
+            )}
+            title="推送设置"
+          >
+            <Bell size={11} fill={pushEnabled ? "currentColor" : "none"} />
+          </button>
+          {pushPopoverOpen && (
+            <NotePushPopover
+              note={note}
+              onClose={() => setPushPopoverOpen(false)}
+              onUpdated={onPushUpdated}
+            />
           )}
-          title={pushEnabled ? "已加入定时推送 · 点击取消" : "加入定时推送（按系统设置中的频率）"}
-        >
-          <Bell size={11} fill={pushEnabled ? "currentColor" : "none"} />
-        </button>
+        </div>
 
         {/* AI 转任务 / 编辑 / 删除（hover 才显示） */}
         <div className="flex items-center gap-0.5 shrink-0 mt-[3px] opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1024,6 +1049,152 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
           <GripVertical size={12} />
         </span>
       </div>
+    </div>
+  );
+}
+
+// ============ 笔记推送设置弹层 ============
+function NotePushPopover({ note, onClose, onUpdated }: {
+  note: Note;
+  onClose: () => void;
+  onUpdated: (next: {
+    push_enabled: boolean;
+    push_frequency: "daily" | "weekly";
+    push_hour: number;
+    push_minute: number;
+    push_weekday: number | null;
+  }) => void;
+}) {
+  const [enabled, setEnabled] = useState(!!note.push_enabled);
+  const [frequency, setFrequency] = useState<"daily" | "weekly">(note.push_frequency ?? "daily");
+  const [hour, setHour] = useState<number>(note.push_hour ?? 9);
+  const [minute, setMinute] = useState<0 | 30>((note.push_minute === 30 ? 30 : 0));
+  const [weekday, setWeekday] = useState<number>(note.push_weekday ?? 1);
+  const [saving, setSaving] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // 点外部关闭
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (!wrapperRef.current) return;
+      if (!wrapperRef.current.contains(e.target as Node)) onClose();
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [onClose]);
+
+  async function save() {
+    setSaving(true);
+    const payload = {
+      push_enabled: enabled,
+      push_frequency: frequency,
+      push_hour: hour,
+      push_minute: minute,
+      push_weekday: frequency === "weekly" ? weekday : null,
+    };
+    try {
+      const r = await fetch(`/api/notes/${note.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) throw new Error("save failed");
+      onUpdated(payload);
+      onClose();
+    } catch {
+      // 静默
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      ref={wrapperRef}
+      onClick={(e) => e.stopPropagation()}
+      className="absolute right-0 top-full mt-1 z-30 bg-white border border-gray-200 rounded-lg shadow-xl w-[260px] p-3 text-xs"
+      style={{ animation: "fadeIn 0.1s ease" }}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <span className="font-medium text-gray-900 inline-flex items-center gap-1">
+          <Bell size={11} /> 推送设置
+        </span>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
+          <X size={12} />
+        </button>
+      </div>
+
+      {/* 启用 */}
+      <label className="flex items-center gap-1.5 cursor-pointer mb-2">
+        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)}
+          className="w-3.5 h-3.5" />
+        <span className="text-gray-700">启用本笔记推送</span>
+      </label>
+
+      {/* 频率 */}
+      <div className="mb-2">
+        <div className="text-gray-500 mb-1">频率</div>
+        <div className="flex gap-1">
+          <button onClick={() => setFrequency("daily")}
+            className={cn(
+              "px-2 py-0.5 rounded border text-[11px]",
+              frequency === "daily" ? "border-violet-400 bg-violet-50 text-violet-700" : "border-gray-200 text-gray-600",
+            )}>每天</button>
+          <button onClick={() => setFrequency("weekly")}
+            className={cn(
+              "px-2 py-0.5 rounded border text-[11px]",
+              frequency === "weekly" ? "border-violet-400 bg-violet-50 text-violet-700" : "border-gray-200 text-gray-600",
+            )}>每周</button>
+        </div>
+      </div>
+
+      {/* 周几 */}
+      {frequency === "weekly" && (
+        <div className="mb-2">
+          <div className="text-gray-500 mb-1">星期几</div>
+          <select value={weekday} onChange={(e) => setWeekday(Number(e.target.value))}
+            className="w-full px-2 py-1 border border-gray-200 rounded bg-white text-[11px]">
+            <option value={1}>周一</option>
+            <option value={2}>周二</option>
+            <option value={3}>周三</option>
+            <option value={4}>周四</option>
+            <option value={5}>周五</option>
+            <option value={6}>周六</option>
+            <option value={7}>周日</option>
+          </select>
+        </div>
+      )}
+
+      {/* 时间 */}
+      <div className="mb-3">
+        <div className="text-gray-500 mb-1">推送时间 <span className="text-gray-400">（北京时间）</span></div>
+        <div className="flex items-center gap-1 tabular-nums">
+          <select value={hour} onChange={(e) => setHour(Number(e.target.value))}
+            className="px-2 py-1 border border-gray-200 rounded bg-white text-[11px]">
+            {Array.from({ length: 24 }).map((_, h) => (
+              <option key={h} value={h}>{String(h).padStart(2, "0")} 时</option>
+            ))}
+          </select>
+          <span className="text-gray-400">:</span>
+          <select value={minute} onChange={(e) => setMinute(Number(e.target.value) as 0 | 30)}
+            className="px-2 py-1 border border-gray-200 rounded bg-white text-[11px]">
+            <option value={0}>00 分</option>
+            <option value={30}>30 分</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-1.5 pt-2 border-t border-gray-100">
+        <button onClick={onClose} className="px-2 py-1 text-[11px] text-gray-600 hover:text-gray-900">取消</button>
+        <button onClick={save} disabled={saving}
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-violet-600 text-white text-[11px] hover:bg-violet-500 disabled:opacity-50">
+          {saving ? <Loader2 size={10} className="animate-spin" /> : <Save size={10} />}
+          保存
+        </button>
+      </div>
+
+      <p className="mt-2 text-[10px] text-gray-400 leading-relaxed">
+        token 在 系统设置 → 消息推送 一次性配置；这里只管本笔记的频率和时间。
+      </p>
     </div>
   );
 }

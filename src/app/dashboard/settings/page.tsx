@@ -1053,29 +1053,16 @@ export default function SettingsPage() {
   );
 }
 
+
 // ─────────────────────────────────────────── 消息推送 ───────────────────────────────────────────
 
 interface PushConfig {
   enabled: boolean;
-  frequency: "daily" | "weekly";
-  push_hour: number;
-  push_minute: number;
-  push_weekday: number | null;
   pushplus_token_last4: string;
   has_token: boolean;
   last_pushed_at: string | null;
   last_error: string;
 }
-
-const WEEKDAYS = [
-  { value: 1, label: "周一" },
-  { value: 2, label: "周二" },
-  { value: 3, label: "周三" },
-  { value: 4, label: "周四" },
-  { value: 5, label: "周五" },
-  { value: 6, label: "周六" },
-  { value: 7, label: "周日" },
-];
 
 function PushNotificationPanel() {
   const [config, setConfig] = useState<PushConfig | null>(null);
@@ -1085,13 +1072,7 @@ function PushNotificationPanel() {
   const [tokenInput, setTokenInput] = useState("");
   const [showToken, setShowToken] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-
-  // 本地编辑值
   const [enabled, setEnabled] = useState(false);
-  const [frequency, setFrequency] = useState<"daily" | "weekly">("daily");
-  const [pushHour, setPushHour] = useState(9);
-  const [pushMinute, setPushMinute] = useState<0 | 30>(0);
-  const [pushWeekday, setPushWeekday] = useState(1);
 
   useEffect(() => { load(); }, []);
 
@@ -1103,25 +1084,14 @@ function PushNotificationPanel() {
       const c = j.config as PushConfig;
       setConfig(c);
       setEnabled(c.enabled);
-      setFrequency(c.frequency);
-      setPushHour(c.push_hour);
-      setPushMinute(c.push_minute === 30 ? 30 : 0);
-      setPushWeekday(c.push_weekday ?? 1);
     }
     setLoading(false);
   }
 
   async function save() {
     setSaving(true); setMsg(null);
-    const payload: Record<string, unknown> = {
-      enabled,
-      frequency,
-      push_hour: pushHour,
-      push_minute: pushMinute,
-      push_weekday: frequency === "weekly" ? pushWeekday : null,
-    };
+    const payload: Record<string, unknown> = { enabled };
     if (tokenInput.trim()) payload.pushplus_token = tokenInput.trim();
-
     const r = await fetch("/api/notification-configs", {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -1131,6 +1101,7 @@ function PushNotificationPanel() {
     if (!r.ok) { setMsg({ ok: false, text: j.error || "保存失败" }); return; }
     setConfig(j.config);
     setTokenInput("");
+    setShowToken(false);
     setMsg({ ok: true, text: "已保存" });
   }
 
@@ -1141,7 +1112,7 @@ function PushNotificationPanel() {
     setTesting(false);
     if (!r.ok) { setMsg({ ok: false, text: j.error || "测试推送失败" }); return; }
     setMsg({ ok: true, text: `已发送测试推送到微信 · 共 ${j.notesCount} 条笔记预览` });
-    load(); // 刷新 last_error 等
+    load();
   }
 
   if (loading) {
@@ -1161,15 +1132,17 @@ function PushNotificationPanel() {
             PushPlus 微信推送
           </h2>
           <p className="text-xs text-gray-500 mt-1">
-            标了 🔔 的笔记会按你设的时间推到微信。token 从 <a href="https://www.pushplus.plus" target="_blank" rel="noreferrer" className="text-violet-600 hover:underline">pushplus.plus</a> 微信扫码登录后复制。
+            这里只配 token + 总开关；每条笔记的推送时间/频率在工作笔记点 🔔 单独设置。
+            <br />
+            token 从 <a href="https://www.pushplus.plus" target="_blank" rel="noreferrer" className="text-violet-600 hover:underline">pushplus.plus</a> 微信扫码登录后复制。
           </p>
         </div>
 
         {/* Token */}
         <div>
           <label className="block text-xs font-medium text-gray-700 mb-1.5">PushPlus Token</label>
-          {config?.has_token && !tokenInput && (
-            <div className="flex items-center gap-2 mb-2">
+          {config?.has_token && !tokenInput && !showToken && (
+            <div className="flex items-center gap-2">
               <span className="text-xs text-green-700 inline-flex items-center gap-1 px-2 py-1 bg-green-50 rounded">
                 <Check size={11} /> 已配置 · 末 4 位 ****{config.pushplus_token_last4}
               </span>
@@ -1193,61 +1166,11 @@ function PushNotificationPanel() {
         <label className="flex items-center gap-2 text-sm cursor-pointer">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)}
             className="w-4 h-4" />
-          <span className="text-gray-700">启用自动推送</span>
+          <span className="text-gray-700">总开关 · 启用自动推送</span>
         </label>
-
-        {/* 频率 */}
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1.5">推送频率</label>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setFrequency("daily")}
-              className={cn(
-                "px-3 py-1.5 rounded-md text-sm border",
-                frequency === "daily" ? "border-violet-500 bg-violet-50 text-violet-700" : "border-gray-200 text-gray-600 hover:bg-gray-50",
-              )}
-            >每天</button>
-            <button
-              onClick={() => setFrequency("weekly")}
-              className={cn(
-                "px-3 py-1.5 rounded-md text-sm border",
-                frequency === "weekly" ? "border-violet-500 bg-violet-50 text-violet-700" : "border-gray-200 text-gray-600 hover:bg-gray-50",
-              )}
-            >每周</button>
-          </div>
-        </div>
-
-        {/* 周几 */}
-        {frequency === "weekly" && (
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1.5">星期几</label>
-            <select value={pushWeekday} onChange={(e) => setPushWeekday(Number(e.target.value))}
-              className="px-3 py-2 border border-gray-200 rounded-md text-sm bg-white">
-              {WEEKDAYS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
-            </select>
-          </div>
-        )}
-
-        {/* 时间 */}
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1.5">
-            推送时间 <span className="text-gray-400 font-normal">（北京时间 · 分钟精度 30 分钟）</span>
-          </label>
-          <div className="flex items-center gap-2 text-sm">
-            <select value={pushHour} onChange={(e) => setPushHour(Number(e.target.value))}
-              className="px-3 py-2 border border-gray-200 rounded-md bg-white tabular-nums">
-              {Array.from({ length: 24 }).map((_, h) => (
-                <option key={h} value={h}>{String(h).padStart(2, "0")} 时</option>
-              ))}
-            </select>
-            <span className="text-gray-400">:</span>
-            <select value={pushMinute} onChange={(e) => setPushMinute(Number(e.target.value) as 0 | 30)}
-              className="px-3 py-2 border border-gray-200 rounded-md bg-white tabular-nums">
-              <option value={0}>00 分</option>
-              <option value={30}>30 分</option>
-            </select>
-          </div>
-        </div>
+        <p className="text-[11px] text-gray-400 -mt-2 pl-6">
+          关掉这里 = 所有笔记的推送统一停。重新打开后，每条笔记自己的设置照原样生效。
+        </p>
 
         {/* 上次推送 + 错误 */}
         {(config?.last_pushed_at || config?.last_error) && (
@@ -1292,8 +1215,8 @@ function PushNotificationPanel() {
       </div>
 
       <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 leading-relaxed">
-        <strong className="text-gray-700">用法提示</strong>
-        ：保存好 token 和时间后，去工作笔记给每条想要被推送的笔记**点一下 🔔 铃铛图标**。到点 Cron 会自动把所有 🔔 标记的笔记按 Markdown 拼好推到你微信。
+        <strong className="text-gray-700">用法</strong>
+        ：1) 这里填 token + 打开总开关；2) 到「工作笔记」给每条想被推送的笔记 <strong>点 🔔</strong>，在弹层里设它自己的频率（每天/每周）和时间；3) 到点 Cron 会自动按 Markdown 拼好推到你微信。
       </div>
     </div>
   );
