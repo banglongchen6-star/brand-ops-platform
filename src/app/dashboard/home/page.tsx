@@ -881,6 +881,27 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
         />
         <div className="mt-2 flex items-center gap-1.5">
           <span className="text-[10px] text-gray-400">{content.replace(/<[^>]+>/g, "").length} 字</span>
+          <button
+            onClick={async () => {
+              const next = !note.push_enabled;
+              note.push_enabled = next;
+              await fetch(`/api/notes/${note.id}`, {
+                method: "PATCH", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ push_enabled: next }),
+              });
+            }}
+            type="button"
+            className={cn(
+              "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border transition",
+              note.push_enabled
+                ? "border-violet-400 bg-violet-100 text-violet-700"
+                : "border-gray-200 text-gray-500 hover:border-violet-300 hover:text-violet-600",
+            )}
+            title={note.push_enabled ? "已加入定时推送 · 点击取消" : "加入定时推送（按系统设置中的频率）"}
+          >
+            <Bell size={10} fill={note.push_enabled ? "currentColor" : "none"} />
+            {note.push_enabled ? "已加入推送" : "加入推送"}
+          </button>
           <div className="flex-1" />
           <button onClick={onCancelEdit} disabled={saving}
             className="px-2 py-1 text-[10px] border border-gray-200 rounded text-gray-700 hover:bg-gray-50">
