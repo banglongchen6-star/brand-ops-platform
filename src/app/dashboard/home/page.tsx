@@ -1109,92 +1109,96 @@ function NotePushPopover({ note, onClose, onUpdated }: {
 
   return (
     <div
-      ref={wrapperRef}
-      onClick={(e) => e.stopPropagation()}
-      className="absolute right-0 top-full mt-1 z-30 bg-white border border-gray-200 rounded-lg shadow-xl w-[260px] p-3 text-xs"
-      style={{ animation: "fadeIn 0.1s ease" }}
+      className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4"
+      onClick={onClose}
     >
-      <div className="flex items-center justify-between mb-2">
-        <span className="font-medium text-gray-900 inline-flex items-center gap-1">
-          <Bell size={11} /> 推送设置
-        </span>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
-          <X size={12} />
-        </button>
-      </div>
+      <div
+        ref={wrapperRef}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white border border-gray-200 rounded-xl shadow-2xl w-[340px] p-4 text-sm"
+      >
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-gray-900 inline-flex items-center gap-1.5">
+            <Bell size={14} className="text-violet-600" /> 推送设置
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-700">
+            <X size={14} />
+          </button>
+        </div>
 
-      {/* 启用 */}
-      <label className="flex items-center gap-1.5 cursor-pointer mb-2">
-        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)}
-          className="w-3.5 h-3.5" />
-        <span className="text-gray-700">启用本笔记推送</span>
-      </label>
+        <p className="text-[11px] text-gray-400 mb-3 leading-relaxed">
+          本条笔记的推送时间。token 在 系统设置 → 消息推送 一次性配置。
+        </p>
 
-      {/* 频率 */}
-      <div className="mb-2">
-        <div className="text-gray-500 mb-1">频率</div>
-        <div className="flex gap-1">
-          <button onClick={() => setFrequency("daily")}
-            className={cn(
-              "px-2 py-0.5 rounded border text-[11px]",
-              frequency === "daily" ? "border-violet-400 bg-violet-50 text-violet-700" : "border-gray-200 text-gray-600",
-            )}>每天</button>
-          <button onClick={() => setFrequency("weekly")}
-            className={cn(
-              "px-2 py-0.5 rounded border text-[11px]",
-              frequency === "weekly" ? "border-violet-400 bg-violet-50 text-violet-700" : "border-gray-200 text-gray-600",
-            )}>每周</button>
+        {/* 启用 */}
+        <label className="flex items-center gap-2 cursor-pointer mb-3 select-none">
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)}
+            className="w-4 h-4" />
+          <span className="text-gray-700">启用本笔记推送</span>
+        </label>
+
+        {/* 频率 */}
+        <div className="mb-3">
+          <div className="text-xs text-gray-500 mb-1">频率</div>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setFrequency("daily")}
+              className={cn(
+                "px-3 py-1 rounded-md border text-xs",
+                frequency === "daily" ? "border-violet-500 bg-violet-50 text-violet-700" : "border-gray-200 text-gray-600 hover:bg-gray-50",
+              )}>每天</button>
+            <button type="button" onClick={() => setFrequency("weekly")}
+              className={cn(
+                "px-3 py-1 rounded-md border text-xs",
+                frequency === "weekly" ? "border-violet-500 bg-violet-50 text-violet-700" : "border-gray-200 text-gray-600 hover:bg-gray-50",
+              )}>每周</button>
+          </div>
+        </div>
+
+        {/* 周几 */}
+        {frequency === "weekly" && (
+          <div className="mb-3">
+            <div className="text-xs text-gray-500 mb-1">星期几</div>
+            <select value={weekday} onChange={(e) => setWeekday(Number(e.target.value))}
+              className="w-full px-3 py-1.5 border border-gray-200 rounded-md bg-white text-sm">
+              <option value={1}>周一</option>
+              <option value={2}>周二</option>
+              <option value={3}>周三</option>
+              <option value={4}>周四</option>
+              <option value={5}>周五</option>
+              <option value={6}>周六</option>
+              <option value={7}>周日</option>
+            </select>
+          </div>
+        )}
+
+        {/* 时间 */}
+        <div className="mb-4">
+          <div className="text-xs text-gray-500 mb-1">推送时间 <span className="text-gray-400">（北京时间）</span></div>
+          <div className="flex items-center gap-2 tabular-nums">
+            <select value={hour} onChange={(e) => setHour(Number(e.target.value))}
+              className="flex-1 px-3 py-1.5 border border-gray-200 rounded-md bg-white text-sm">
+              {Array.from({ length: 24 }).map((_, h) => (
+                <option key={h} value={h}>{String(h).padStart(2, "0")} 时</option>
+              ))}
+            </select>
+            <span className="text-gray-400">:</span>
+            <select value={minute} onChange={(e) => setMinute(Number(e.target.value) as 0 | 30)}
+              className="flex-1 px-3 py-1.5 border border-gray-200 rounded-md bg-white text-sm">
+              <option value={0}>00 分</option>
+              <option value={30}>30 分</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-3 border-t border-gray-100">
+          <button onClick={onClose} className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900">取消</button>
+          <button onClick={save} disabled={saving}
+            className="inline-flex items-center gap-1 px-4 py-1.5 rounded-md bg-violet-600 text-white text-sm hover:bg-violet-500 disabled:opacity-50">
+            {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+            保存
+          </button>
         </div>
       </div>
-
-      {/* 周几 */}
-      {frequency === "weekly" && (
-        <div className="mb-2">
-          <div className="text-gray-500 mb-1">星期几</div>
-          <select value={weekday} onChange={(e) => setWeekday(Number(e.target.value))}
-            className="w-full px-2 py-1 border border-gray-200 rounded bg-white text-[11px]">
-            <option value={1}>周一</option>
-            <option value={2}>周二</option>
-            <option value={3}>周三</option>
-            <option value={4}>周四</option>
-            <option value={5}>周五</option>
-            <option value={6}>周六</option>
-            <option value={7}>周日</option>
-          </select>
-        </div>
-      )}
-
-      {/* 时间 */}
-      <div className="mb-3">
-        <div className="text-gray-500 mb-1">推送时间 <span className="text-gray-400">（北京时间）</span></div>
-        <div className="flex items-center gap-1 tabular-nums">
-          <select value={hour} onChange={(e) => setHour(Number(e.target.value))}
-            className="px-2 py-1 border border-gray-200 rounded bg-white text-[11px]">
-            {Array.from({ length: 24 }).map((_, h) => (
-              <option key={h} value={h}>{String(h).padStart(2, "0")} 时</option>
-            ))}
-          </select>
-          <span className="text-gray-400">:</span>
-          <select value={minute} onChange={(e) => setMinute(Number(e.target.value) as 0 | 30)}
-            className="px-2 py-1 border border-gray-200 rounded bg-white text-[11px]">
-            <option value={0}>00 分</option>
-            <option value={30}>30 分</option>
-          </select>
-        </div>
-      </div>
-
-      <div className="flex justify-end gap-1.5 pt-2 border-t border-gray-100">
-        <button onClick={onClose} className="px-2 py-1 text-[11px] text-gray-600 hover:text-gray-900">取消</button>
-        <button onClick={save} disabled={saving}
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-violet-600 text-white text-[11px] hover:bg-violet-500 disabled:opacity-50">
-          {saving ? <Loader2 size={10} className="animate-spin" /> : <Save size={10} />}
-          保存
-        </button>
-      </div>
-
-      <p className="mt-2 text-[10px] text-gray-400 leading-relaxed">
-        token 在 系统设置 → 消息推送 一次性配置；这里只管本笔记的频率和时间。
-      </p>
     </div>
   );
 }
