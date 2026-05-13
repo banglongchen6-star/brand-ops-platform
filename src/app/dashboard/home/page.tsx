@@ -8,9 +8,10 @@ import { useRouter } from "next/navigation";
 import {
   Plus, FileText, Loader2, X, Trash2, CheckCircle2, Sparkles, ListChecks,
   Edit2, Save, Sun, Moon, ChevronDown, ChevronRight, Settings2, GripVertical,
-  Wand2, ExternalLink,
+  Wand2, ExternalLink, Bell,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { cn } from "@/lib/utils";
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor,
   useSensor, useSensors, DragEndEvent,
@@ -35,6 +36,7 @@ interface Note {
   category_id: string | null;
   sort_order: number | null;
   linked_task_ids?: string[];
+  push_enabled?: boolean;
   updated_at: string;
   created_at: string;
 }
@@ -902,7 +904,7 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
   return (
     // 单行布局：[拖拽柄][圆点][标题?+正文][时间+AI转任务+编辑+删除]，去掉空白标题栏
     <div key="view" className="group bg-white border border-gray-200 rounded-lg px-3 py-2 hover:border-violet-300 hover:shadow-sm transition-all overflow-hidden">
-      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-start gap-1.5">
+      <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto] items-start gap-1.5">
         {/* 序号（拖拽排序后自动更新） */}
         <span
           className="text-sm font-bold tabular-nums leading-snug whitespace-nowrap"
@@ -952,6 +954,28 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
             </div>
           )}
         </div>
+        {/* 推送铃铛（已开启时常驻，未开启时 hover 显示） */}
+        <button
+          onClick={async () => {
+            const next = !note.push_enabled;
+            // 乐观更新（直接改 note 对象的引用 + 调 API）
+            note.push_enabled = next;
+            await fetch(`/api/notes/${note.id}`, {
+              method: "PATCH", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ push_enabled: next }),
+            });
+          }}
+          className={cn(
+            "p-0.5 rounded shrink-0 mt-[3px] transition-all",
+            note.push_enabled
+              ? "text-violet-600 opacity-100 hover:bg-violet-50"
+              : "text-gray-300 opacity-0 group-hover:opacity-100 hover:text-violet-600 hover:bg-violet-50",
+          )}
+          title={note.push_enabled ? "已加入定时推送 · 点击取消" : "加入定时推送（按系统设置中的频率）"}
+        >
+          <Bell size={11} fill={note.push_enabled ? "currentColor" : "none"} />
+        </button>
+
         {/* AI 转任务 / 编辑 / 删除（hover 才显示） */}
         <div className="flex items-center gap-0.5 shrink-0 mt-[3px] opacity-0 group-hover:opacity-100 transition-opacity">
           <button onClick={onGenerateTask}

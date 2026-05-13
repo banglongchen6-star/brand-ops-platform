@@ -22,6 +22,8 @@ import {
   Lock,
   Trash2,
   AlertTriangle,
+  Bell,
+  Send,
 } from "lucide-react";
 import { supabase, roleLabels } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -63,7 +65,7 @@ const roleColors: Record<string, string> = {
   viewer: "bg-gray-100 text-gray-600",
 };
 
-type TabKey = "team" | "profile" | "system";
+type TabKey = "team" | "profile" | "push" | "system";
 
 interface SystemStats {
   sales: number;
@@ -337,6 +339,7 @@ export default function SettingsPage() {
   const tabs: { key: TabKey; label: string; Icon: React.ElementType }[] = [
     { key: "team", label: "团队成员", Icon: Users },
     { key: "profile", label: "我的资料", Icon: User },
+    { key: "push", label: "消息推送", Icon: Bell },
     { key: "system", label: "系统信息", Icon: Info },
   ];
 
@@ -783,7 +786,10 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* ====== TAB 3: 系统信息 ====== */}
+      {/* ====== TAB 3: 消息推送 ====== */}
+      {activeTab === "push" && <PushNotificationPanel />}
+
+      {/* ====== TAB 4: 系统信息 ====== */}
       {activeTab === "system" && (
         <div className="space-y-5 max-w-2xl">
           {/* 平台信息 */}
@@ -1043,6 +1049,252 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────── 消息推送 ───────────────────────────────────────────
+
+interface PushConfig {
+  enabled: boolean;
+  frequency: "daily" | "weekly";
+  push_hour: number;
+  push_minute: number;
+  push_weekday: number | null;
+  pushplus_token_last4: string;
+  has_token: boolean;
+  last_pushed_at: string | null;
+  last_error: string;
+}
+
+const WEEKDAYS = [
+  { value: 1, label: "周一" },
+  { value: 2, label: "周二" },
+  { value: 3, label: "周三" },
+  { value: 4, label: "周四" },
+  { value: 5, label: "周五" },
+  { value: 6, label: "周六" },
+  { value: 7, label: "周日" },
+];
+
+function PushNotificationPanel() {
+  const [config, setConfig] = useState<PushConfig | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [tokenInput, setTokenInput] = useState("");
+  const [showToken, setShowToken] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // 本地编辑值
+  const [enabled, setEnabled] = useState(false);
+  const [frequency, setFrequency] = useState<"daily" | "weekly">("daily");
+  const [pushHour, setPushHour] = useState(9);
+  const [pushMinute, setPushMinute] = useState<0 | 30>(0);
+  const [pushWeekday, setPushWeekday] = useState(1);
+
+  useEffect(() => { load(); }, []);
+
+  async function load() {
+    setLoading(true);
+    const r = await fetch("/api/notification-configs");
+    const j = await r.json();
+    if (r.ok && j.config) {
+      const c = j.config as PushConfig;
+      setConfig(c);
+      setEnabled(c.enabled);
+      setFrequency(c.frequency);
+      setPushHour(c.push_hour);
+      setPushMinute(c.push_minute === 30 ? 30 : 0);
+      setPushWeekday(c.push_weekday ?? 1);
+    }
+    setLoading(false);
+  }
+
+  async function save() {
+    setSaving(true); setMsg(null);
+    const payload: Record<string, unknown> = {
+      enabled,
+      frequency,
+      push_hour: pushHour,
+      push_minute: pushMinute,
+      push_weekday: frequency === "weekly" ? pushWeekday : null,
+    };
+    if (tokenInput.trim()) payload.pushplus_token = tokenInput.trim();
+
+    const r = await fetch("/api/notification-configs", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json();
+    setSaving(false);
+    if (!r.ok) { setMsg({ ok: false, text: j.error || "保存失败" }); return; }
+    setConfig(j.config);
+    setTokenInput("");
+    setMsg({ ok: true, text: "已保存" });
+  }
+
+  async function sendTest() {
+    setTesting(true); setMsg(null);
+    const r = await fetch("/api/notification-configs/test", { method: "POST" });
+    const j = await r.json();
+    setTesting(false);
+    if (!r.ok) { setMsg({ ok: false, text: j.error || "测试推送失败" }); return; }
+    setMsg({ ok: true, text: `已发送测试推送到微信 · 共 ${j.notesCount} 条笔记预览` });
+    load(); // 刷新 last_error 等
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-gray-400">
+        <Loader2 size={14} className="animate-spin" /> 加载中…
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5 max-w-2xl">
+      <div className="bg-white rounded-2xl p-5 border border-gray-200 space-y-4">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+            <Bell size={16} className="text-violet-600" />
+            PushPlus 微信推送
+          </h2>
+          <p className="text-xs text-gray-500 mt-1">
+            标了 🔔 的笔记会按你设的时间推到微信。token 从 <a href="https://www.pushplus.plus" target="_blank" rel="noreferrer" className="text-violet-600 hover:underline">pushplus.plus</a> 微信扫码登录后复制。
+          </p>
+        </div>
+
+        {/* Token */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1.5">PushPlus Token</label>
+          {config?.has_token && !tokenInput && (
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs text-green-700 inline-flex items-center gap-1 px-2 py-1 bg-green-50 rounded">
+                <Check size={11} /> 已配置 · 末 4 位 ****{config.pushplus_token_last4}
+              </span>
+              <button onClick={() => setShowToken(true)} className="text-xs text-violet-700 hover:underline">
+                更换 token
+              </button>
+            </div>
+          )}
+          {(showToken || !config?.has_token || tokenInput) && (
+            <input
+              type="text"
+              value={tokenInput}
+              onChange={(e) => setTokenInput(e.target.value)}
+              placeholder={config?.has_token ? "粘贴新 token 即可更换（留空保留原 token）" : "粘贴你的 PushPlus token"}
+              className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm font-mono"
+            />
+          )}
+        </div>
+
+        {/* 总开关 */}
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)}
+            className="w-4 h-4" />
+          <span className="text-gray-700">启用自动推送</span>
+        </label>
+
+        {/* 频率 */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1.5">推送频率</label>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setFrequency("daily")}
+              className={cn(
+                "px-3 py-1.5 rounded-md text-sm border",
+                frequency === "daily" ? "border-violet-500 bg-violet-50 text-violet-700" : "border-gray-200 text-gray-600 hover:bg-gray-50",
+              )}
+            >每天</button>
+            <button
+              onClick={() => setFrequency("weekly")}
+              className={cn(
+                "px-3 py-1.5 rounded-md text-sm border",
+                frequency === "weekly" ? "border-violet-500 bg-violet-50 text-violet-700" : "border-gray-200 text-gray-600 hover:bg-gray-50",
+              )}
+            >每周</button>
+          </div>
+        </div>
+
+        {/* 周几 */}
+        {frequency === "weekly" && (
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1.5">星期几</label>
+            <select value={pushWeekday} onChange={(e) => setPushWeekday(Number(e.target.value))}
+              className="px-3 py-2 border border-gray-200 rounded-md text-sm bg-white">
+              {WEEKDAYS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </select>
+          </div>
+        )}
+
+        {/* 时间 */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1.5">
+            推送时间 <span className="text-gray-400 font-normal">（北京时间 · 分钟精度 30 分钟）</span>
+          </label>
+          <div className="flex items-center gap-2 text-sm">
+            <select value={pushHour} onChange={(e) => setPushHour(Number(e.target.value))}
+              className="px-3 py-2 border border-gray-200 rounded-md bg-white tabular-nums">
+              {Array.from({ length: 24 }).map((_, h) => (
+                <option key={h} value={h}>{String(h).padStart(2, "0")} 时</option>
+              ))}
+            </select>
+            <span className="text-gray-400">:</span>
+            <select value={pushMinute} onChange={(e) => setPushMinute(Number(e.target.value) as 0 | 30)}
+              className="px-3 py-2 border border-gray-200 rounded-md bg-white tabular-nums">
+              <option value={0}>00 分</option>
+              <option value={30}>30 分</option>
+            </select>
+          </div>
+        </div>
+
+        {/* 上次推送 + 错误 */}
+        {(config?.last_pushed_at || config?.last_error) && (
+          <div className="text-xs text-gray-500 space-y-1 border-t border-gray-100 pt-3">
+            {config.last_pushed_at && (
+              <div>上次推送：{new Date(config.last_pushed_at).toLocaleString("zh-CN")}</div>
+            )}
+            {config.last_error && (
+              <div className="text-rose-600">最近错误：{config.last_error}</div>
+            )}
+          </div>
+        )}
+
+        {msg && (
+          <div className={cn(
+            "text-xs px-3 py-2 rounded-md",
+            msg.ok ? "bg-green-50 text-green-700 border border-green-200" : "bg-rose-50 text-rose-700 border border-rose-200",
+          )}>
+            {msg.text}
+          </div>
+        )}
+
+        {/* 按钮 */}
+        <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+          <button
+            onClick={sendTest}
+            disabled={testing || !config?.has_token}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs border border-gray-200 rounded-md text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {testing ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+            发送测试推送
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-violet-600 text-white rounded-md hover:bg-violet-500 disabled:opacity-50"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            保存
+          </button>
+        </div>
+      </div>
+
+      <div className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 leading-relaxed">
+        <strong className="text-gray-700">用法提示</strong>
+        ：保存好 token 和时间后，去工作笔记给每条想要被推送的笔记**点一下 🔔 铃铛图标**。到点 Cron 会自动把所有 🔔 标记的笔记按 Markdown 拼好推到你微信。
+      </div>
     </div>
   );
 }

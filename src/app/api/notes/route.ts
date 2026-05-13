@@ -13,7 +13,7 @@ export async function GET(req: Request) {
 
   const admin = getAdminClient();
   let q = admin.from("personal_notes")
-    .select("id, date, title, content_md, tags, category_id, sort_order, is_archived, linked_task_ids, last_detect_len, last_detect_at, created_at, updated_at")
+    .select("id, date, title, content_md, tags, category_id, sort_order, is_archived, linked_task_ids, push_enabled, last_detect_len, last_detect_at, created_at, updated_at")
     .eq("owner_id", guard.userId)
     .eq("is_archived", false)
     .order("sort_order", { ascending: true, nullsFirst: false })

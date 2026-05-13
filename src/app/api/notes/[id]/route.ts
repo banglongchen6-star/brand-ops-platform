@@ -2,7 +2,7 @@
 import { requireUser } from "@/lib/requireUser";
 import { getAdminClient } from "@/lib/supabaseAdmin";
 
-const EDITABLE = ["title", "content_md", "date", "tags", "is_archived", "category_id", "sort_order"] as const;
+const EDITABLE = ["title", "content_md", "date", "tags", "is_archived", "category_id", "sort_order", "push_enabled"] as const;
 
 async function ensureOwner(id: string, userId: string) {
   const admin = getAdminClient();
