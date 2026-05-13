@@ -53,20 +53,33 @@ export async function sendPushPlus(opts: {
 
 // 把多条笔记拼成一条 markdown 推送
 // 优先用 push_summary（用户专门写的推送摘要）；为空才用完整 content_md
+// 笔记标题是默认值（速记/新笔记/空）时，不渲染"## 标题"小标题，直接展示内容
+const DEFAULT_NOTE_TITLES = new Set(["", "速记", "新笔记"]);
+
+function isDefaultTitle(t: string | null | undefined): boolean {
+  const s = (t ?? "").trim();
+  return DEFAULT_NOTE_TITLES.has(s);
+}
+
 export function buildNotesPushContent(
   notes: Array<{ title: string; content_md: string; push_summary?: string; date: string; updated_at?: string }>,
 ): { title: string; content: string } {
   const today = new Date();
   const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
-  const title = notes.length === 1
-    ? `📌 ${notes[0].title || "笔记"} · ${dateStr}`
-    : `📌 关注笔记 ${notes.length} 条 · ${dateStr}`;
+  // 顶部标题：单条且有真实标题 → 用笔记标题；否则用统一文案
+  const title = notes.length === 1 && !isDefaultTitle(notes[0].title)
+    ? `📌 ${notes[0].title} · ${dateStr}`
+    : notes.length === 1
+      ? `📌 笔记提醒 · ${dateStr}`
+      : `📌 关注笔记 ${notes.length} 条 · ${dateStr}`;
 
   const sections = notes.map((n) => {
     const summary = (n.push_summary || "").trim();
     const body = summary || (n.content_md || "_（无内容）_").trim();
-    return `## ${n.title || "速记"}\n\n${body}`;
+    // 无真实标题：直接展示内容；有真实标题：保留 "## 标题" 二级标题
+    if (isDefaultTitle(n.title)) return body;
+    return `## ${n.title.trim()}\n\n${body}`;
   });
   const content = sections.join("\n\n---\n\n");
   return { title, content };
