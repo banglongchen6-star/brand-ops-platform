@@ -1,0 +1,32 @@
+# GitHub Actions cron 触发器 —— 每 30 分钟 ping /api/cron/notes-push
+# 取代 Vercel Hobby 受限的 daily-only cron，让用户能自选任意时间（精度 30 分钟）
+#
+# 需要配置：
+# 1. GitHub repo secrets 加 CRON_SECRET（随便一个长字符串）
+# 2. Vercel 项目环境变量同步加 CRON_SECRET = 同一个值
+#    （这样 /api/cron/notes-push 会验证 Bearer header，防止陌生人触发）
+# 不配置 CRON_SECRET 也能跑（端点不强制鉴权），但建议加一道安全。
+name: Notes Push Cron
+
+on:
+  schedule:
+    - cron: "0,30 * * * *"   # 每 30 分钟（UTC，与北京时间槽对齐没问题：北京 9:00 = UTC 1:00 也是 :00 整点）
+  workflow_dispatch: {}      # 也能手动从 Actions 页面触发
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Trigger notes push endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -n "$CRON_SECRET" ]; then
+            curl -fsS -X GET "https://brand-ops-platform.vercel.app/api/cron/notes-push" \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              --max-time 60 || echo "Cron 请求失败（HTTP 非 2xx），见上面 curl 输出"
+          else
+            curl -fsS -X GET "https://brand-ops-platform.vercel.app/api/cron/notes-push" \
+              --max-time 60 || echo "Cron 请求失败"
+          fi
