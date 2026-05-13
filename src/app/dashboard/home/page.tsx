@@ -1065,7 +1065,7 @@ function NotePushPopover({ note, onClose, onUpdated }: {
     push_weekday: number | null;
   }) => void;
 }) {
-  const [enabled, setEnabled] = useState(!!note.push_enabled);
+  const wasEnabled = !!note.push_enabled;
   const [frequency, setFrequency] = useState<"daily" | "weekly">(note.push_frequency ?? "daily");
   const [hour, setHour] = useState<number>(note.push_hour ?? 9);
   const [minute, setMinute] = useState<0 | 30>((note.push_minute === 30 ? 30 : 0));
@@ -1083,15 +1083,14 @@ function NotePushPopover({ note, onClose, onUpdated }: {
     return () => document.removeEventListener("mousedown", onDoc);
   }, [onClose]);
 
-  async function save() {
+  async function patch(payload: {
+    push_enabled: boolean;
+    push_frequency: "daily" | "weekly";
+    push_hour: number;
+    push_minute: number;
+    push_weekday: number | null;
+  }) {
     setSaving(true);
-    const payload = {
-      push_enabled: enabled,
-      push_frequency: frequency,
-      push_hour: hour,
-      push_minute: minute,
-      push_weekday: frequency === "weekly" ? weekday : null,
-    };
     try {
       const r = await fetch(`/api/notes/${note.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
@@ -1105,6 +1104,28 @@ function NotePushPopover({ note, onClose, onUpdated }: {
     } finally {
       setSaving(false);
     }
+  }
+
+  // 保存 = 启用 + 写入设置
+  async function save() {
+    await patch({
+      push_enabled: true,
+      push_frequency: frequency,
+      push_hour: hour,
+      push_minute: minute,
+      push_weekday: frequency === "weekly" ? weekday : null,
+    });
+  }
+
+  // 停用 = enabled 设为 false（保留 frequency/time 配置，方便以后再启用）
+  async function disable() {
+    await patch({
+      push_enabled: false,
+      push_frequency: frequency,
+      push_hour: hour,
+      push_minute: minute,
+      push_weekday: frequency === "weekly" ? weekday : null,
+    });
   }
 
   return (
@@ -1129,13 +1150,6 @@ function NotePushPopover({ note, onClose, onUpdated }: {
         <p className="text-[11px] text-gray-400 mb-3 leading-relaxed">
           本条笔记的推送时间。token 在 系统设置 → 消息推送 一次性配置。
         </p>
-
-        {/* 启用 */}
-        <label className="flex items-center gap-2 cursor-pointer mb-3 select-none">
-          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)}
-            className="w-4 h-4" />
-          <span className="text-gray-700">启用本笔记推送</span>
-        </label>
 
         {/* 频率 */}
         <div className="mb-3">
@@ -1190,13 +1204,21 @@ function NotePushPopover({ note, onClose, onUpdated }: {
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 pt-3 border-t border-gray-100">
-          <button onClick={onClose} className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900">取消</button>
-          <button onClick={save} disabled={saving}
-            className="inline-flex items-center gap-1 px-4 py-1.5 rounded-md bg-violet-600 text-white text-sm hover:bg-violet-500 disabled:opacity-50">
-            {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
-            保存
-          </button>
+        <div className="flex justify-between items-center pt-3 border-t border-gray-100">
+          {wasEnabled ? (
+            <button onClick={disable} disabled={saving}
+              className="text-xs text-rose-600 hover:underline disabled:opacity-50">
+              停用本笔记推送
+            </button>
+          ) : <span />}
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900">取消</button>
+            <button onClick={save} disabled={saving}
+              className="inline-flex items-center gap-1 px-4 py-1.5 rounded-md bg-violet-600 text-white text-sm hover:bg-violet-500 disabled:opacity-50">
+              {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+              {wasEnabled ? "更新设置" : "启用推送"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
