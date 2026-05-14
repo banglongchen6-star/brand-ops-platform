@@ -12,10 +12,9 @@ export default function Page() {
         <div className="w-20 h-20 mx-auto mb-5 rounded-2xl bg-violet-50 flex items-center justify-center">
           <Users size={36} className="text-violet-400" />
         </div>
-        <h1 className="text-xl font-bold text-gray-900 mb-2">达人营销</h1>
+        <h1 className="text-xl font-bold text-gray-900 mb-2">正在开发中</h1>
         <p className="text-sm text-gray-500 mb-6">
-          已迁移到外部「达人运营平台」<br />
-          <span className="text-[11px] text-gray-400">点击下方按钮在新窗口打开</span>
+          以下为预览
         </p>
         <a
           href={EXTERNAL_URL}
