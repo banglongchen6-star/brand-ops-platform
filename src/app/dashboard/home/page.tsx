@@ -977,9 +977,9 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
           {renderMd(note.content_md)}
           {/* 已转任务徽章 */}
           {linkedTasks.length > 0 && (
-            <div className="relative mt-1 inline-block">
+            <div className="mt-1 inline-block">
               <button
-                onClick={() => setShowLinkedTasks((v) => !v)}
+                onClick={() => setShowLinkedTasks(true)}
                 className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full hover:bg-emerald-100 transition"
                 title="点击查看关联任务"
               >
@@ -987,23 +987,38 @@ function NoteCard({ note, index, isEditing, onStartEdit, onCancelEdit, onSave, o
                 已转任务 {linkedTasks.length}
               </button>
               {showLinkedTasks && (
-                <>
-                  {/* 点击外部关闭 */}
-                  <div className="fixed inset-0 z-10" onClick={() => setShowLinkedTasks(false)} />
-                  <div className="absolute left-0 mt-1 z-20 bg-white border border-gray-200 rounded-lg shadow-lg w-[280px] py-1">
-                    {linkedTasks.map((t) => (
-                      <Link
-                        key={t.id}
-                        href={`/dashboard/tasks?taskId=${t.id}`}
-                        className="flex items-start gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-violet-50 hover:text-violet-700"
-                        onClick={() => setShowLinkedTasks(false)}
-                      >
-                        <ExternalLink size={11} className="mt-0.5 shrink-0 text-gray-400" />
-                        <span className="flex-1 break-words">{t.title}</span>
-                      </Link>
-                    ))}
+                <div
+                  className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center p-4"
+                  onClick={() => setShowLinkedTasks(false)}
+                >
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="bg-white border border-gray-200 rounded-xl shadow-2xl w-[340px] max-h-[70vh] overflow-y-auto"
+                  >
+                    <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between">
+                      <h3 className="text-sm font-semibold text-gray-900 inline-flex items-center gap-1.5">
+                        <CheckCircle2 size={14} className="text-emerald-600" />
+                        关联任务 ({linkedTasks.length})
+                      </h3>
+                      <button onClick={() => setShowLinkedTasks(false)} className="text-gray-400 hover:text-gray-700">
+                        <X size={14} />
+                      </button>
+                    </div>
+                    <div className="py-1">
+                      {linkedTasks.map((t) => (
+                        <Link
+                          key={t.id}
+                          href={`/dashboard/tasks?taskId=${t.id}`}
+                          className="flex items-start gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-violet-50 hover:text-violet-700 border-b border-gray-50 last:border-b-0"
+                          onClick={() => setShowLinkedTasks(false)}
+                        >
+                          <ExternalLink size={12} className="mt-1 shrink-0 text-gray-400" />
+                          <span className="flex-1 break-words">{t.title}</span>
+                        </Link>
+                      ))}
+                    </div>
                   </div>
-                </>
+                </div>
               )}
             </div>
           )}
