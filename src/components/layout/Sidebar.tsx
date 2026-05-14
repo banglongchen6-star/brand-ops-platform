@@ -17,6 +17,7 @@ const navGroups = [
     items: [
       { href: "/dashboard/home",       label: "工作笔记", icon: LayoutDashboard },
       { href: "/dashboard/tasks",      label: "任务中心",   icon: CheckSquare },
+      { href: "/dashboard/data",       label: "运营中心",   icon: BarChart3 },
       { href: "/dashboard/kol",        label: "达人营销",   icon: Users, landing: "/dashboard/kol/schedule" },
       { href: "/dashboard/content",    label: "内容运营",   icon: FileVideo },
       { href: "/dashboard/channel",    label: "渠道分销",   icon: Store },
@@ -27,7 +28,6 @@ const navGroups = [
     label: "数据 & 智能",
     items: [
       { href: "/dashboard/competitor", label: "竞品情报",   icon: Swords },
-      { href: "/dashboard/data",       label: "数据中心",   icon: BarChart3 },
       { href: "/dashboard/review",     label: "AI复盘中心", icon: BrainCircuit },
     ],
   },
