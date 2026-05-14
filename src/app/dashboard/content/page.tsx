@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { UnderDevelopment } from "@/components/ui/UnderDevelopment";
 
-export default function ContentIndexPage() {
-  redirect("/dashboard/content/workspace");
+export default function Page() {
+  return <UnderDevelopment moduleName="内容运营" />;
 }

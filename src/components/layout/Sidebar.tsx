@@ -19,7 +19,7 @@ const navGroups = [
       { href: "/dashboard/tasks",      label: "任务中心",   icon: CheckSquare },
       { href: "/dashboard/data",       label: "运营中心",   icon: BarChart3 },
       { href: "/dashboard/service",    label: "客服中心",   icon: Headphones },
-      { href: "/dashboard/kol",        label: "达人营销",   icon: Users, landing: "/dashboard/kol/schedule" },
+      { href: "/dashboard/kol",        label: "达人营销",   icon: Users },
       { href: "/dashboard/content",    label: "内容运营",   icon: FileVideo },
       { href: "/dashboard/channel",    label: "渠道分销",   icon: Store },
     ],
