@@ -1,12 +1,12 @@
 "use client";
 
-// 数据中心 —— 直接嵌入金山文档《2026年1月-12月销售数据总表》
+// 运营中心 —— 直接嵌入 Coze 站点 Brand ROI 看板
 // 整页全屏 iframe，刷新/新窗口按钮浮在右上角，最大化显示区域
 
 import { ExternalLink, RefreshCw } from "lucide-react";
 import { useRef, useState } from "react";
 
-const KDOC_URL = "https://365.kdocs.cn/l/ci0nts47m0eY";
+const KDOC_URL = "https://gbj9svbd9d.coze.site/dashboard/brand-roi";
 
 export default function DataCenterPage() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -20,7 +20,7 @@ export default function DataCenterPage() {
         src={KDOC_URL}
         className="w-full h-full"
         style={{ border: 0, display: "block" }}
-        title="2026 年销售数据总表（金山文档）"
+        title="运营中心（Brand ROI）"
       />
 
       {/* 浮在右上角的操作按钮 */}
