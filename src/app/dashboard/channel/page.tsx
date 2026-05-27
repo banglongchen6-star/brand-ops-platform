@@ -211,14 +211,8 @@ export default function ChannelStoresPage() {
         )}
       </div>
 
-      {/* 区域分布 + 新增按钮 */}
-      <div className="bg-white border border-gray-200 rounded-xl p-5 relative">
-        <button
-          onClick={openNew}
-          className="absolute -top-12 right-0 inline-flex items-center gap-1.5 px-3.5 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-black"
-        >
-          <Plus size={15} /> 新增门店
-        </button>
+      {/* 区域分布 */}
+      <div className="bg-white border border-gray-200 rounded-xl p-5">
         <div className="text-sm text-gray-500 mb-3">区域分布</div>
         {stats.regions.length === 0 ? (
           <div className="text-sm text-gray-400">暂无数据</div>
@@ -271,6 +265,12 @@ export default function ChannelStoresPage() {
             </option>
           ))}
         </select>
+        <button
+          onClick={openNew}
+          className="ml-auto inline-flex items-center gap-1.5 px-3.5 py-2 bg-gray-900 text-white rounded-lg text-sm hover:bg-black"
+        >
+          <Plus size={15} /> 新增门店
+        </button>
       </div>
 
       {/* 表格 */}
@@ -298,7 +298,7 @@ export default function ChannelStoresPage() {
               ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-10 text-center text-gray-400">
-                    {stores.length === 0 ? "暂无门店，点右上角「新增门店」开始录入" : "没有符合筛选条件的门店"}
+                    {stores.length === 0 ? "暂无门店，点「新增门店」开始录入" : "没有符合筛选条件的门店"}
                   </td>
                 </tr>
               ) : (
