@@ -499,16 +499,6 @@ export default function HomePage() {
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
-      {/* 顶部 */}
-      <div className="mb-6 flex items-end justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <Greeting size={22} className="text-amber-500" />{getGreeting().label} 👋
-          </h1>
-          <p className="text-sm text-gray-400 mt-0.5">{formatDate(today)}</p>
-        </div>
-      </div>
-
       {/* 笔记板块 — 两列网格 */}
       {loading ? (
         <div className="flex items-center justify-center py-20 text-gray-400">
