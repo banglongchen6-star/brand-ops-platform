@@ -499,6 +499,11 @@ export default function HomePage() {
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
+      {/* 顶部 */}
+      <div className="mb-6">
+        <p className="text-sm text-gray-400">{formatDate(today)}</p>
+      </div>
+
       {/* 笔记板块 — 两列网格 */}
       {loading ? (
         <div className="flex items-center justify-center py-20 text-gray-400">
