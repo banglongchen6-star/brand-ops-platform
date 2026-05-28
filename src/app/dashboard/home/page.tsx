@@ -337,14 +337,38 @@ export default function HomePage() {
   useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
-    setLoading(true);
-    await Promise.all([loadCategories(), loadNotes(), loadTasks()]);
+    // 先从缓存显示（秒开）
+    try {
+      const cached = localStorage.getItem("home_cache");
+      if (cached) {
+        const { categories, notes, tasks, linkedTaskMap: ltm } = JSON.parse(cached);
+        if (categories) setCategories(categories);
+        if (notes) setNotes(notes);
+        if (tasks) setTasks(tasks);
+        if (ltm) setLinkedTaskMap(ltm);
+        setLoading(false); // 有缓存就立刻不转圈
+      }
+    } catch {}
+    // 后台刷新真实数据
+    setLoading((prev) => prev); // 保持 loading 只在无缓存时显示
+    const [cats, notesResult, taskList] = await Promise.all([loadCategories(), loadNotes(), loadTasks()]);
+    // 保存缓存
+    try {
+      localStorage.setItem("home_cache", JSON.stringify({
+        categories: cats,
+        notes: notesResult?.list || [],
+        tasks: taskList || [],
+        linkedTaskMap: notesResult?.ltm || {},
+      }));
+    } catch {}
     setLoading(false);
   }
   async function loadCategories() {
     const r = await fetch("/api/note-categories");
     const j = await r.json();
-    setCategories((j.categories || []) as Category[]);
+    const cats = (j.categories || []) as Category[];
+    setCategories(cats);
+    return cats;
   }
   async function loadNotes() {
     const r = await fetch("/api/notes?limit=500");
@@ -355,24 +379,27 @@ export default function HomePage() {
     const allLinkedIds = Array.from(
       new Set(list.flatMap((n) => n.linked_task_ids || [])),
     );
+    let ltm: Record<string, string> = {};
     if (allLinkedIds.length > 0) {
       const { data } = await supabase
         .from("tasks")
         .select("id, title")
         .in("id", allLinkedIds);
-      const map: Record<string, string> = {};
       (data || []).forEach((t: { id: string; title: string }) => {
-        map[t.id] = t.title;
+        ltm[t.id] = t.title;
       });
-      setLinkedTaskMap(map);
+      setLinkedTaskMap(ltm);
     } else {
       setLinkedTaskMap({});
     }
+    return { list, ltm };
   }
   async function loadTasks() {
     const r = await fetch("/api/tasks/my-related");
     const j = await r.json();
-    setTasks((j.tasks || []) as MyTask[]);
+    const taskList = (j.tasks || []) as MyTask[];
+    setTasks(taskList);
+    return taskList;
   }
 
   async function newNote(categoryId: string) {
