@@ -19,5 +19,9 @@ jobs:
             cd /root/brand-ops-platform
             git pull origin main
             npm run build
-            pm2 restart brand-ops
+            sudo kill $(sudo lsof -t -i:3000) 2>/dev/null || true
+            sleep 2
+            pm2 delete brand-ops 2>/dev/null || true
+            pm2 start npm --name brand-ops -- start
+            pm2 save
             echo "✅ Deploy done"
