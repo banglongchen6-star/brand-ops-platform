@@ -28,7 +28,6 @@ const navGroups = [
     label: "数据 & 智能",
     items: [
       { href: "/dashboard/competitor", label: "竞品情报",   icon: Swords },
-      { href: "/dashboard/review",     label: "AI复盘中心", icon: BrainCircuit },
     ],
   },
   {
