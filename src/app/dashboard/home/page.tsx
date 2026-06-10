@@ -562,7 +562,7 @@ export default function HomePage() {
         <>
           <DndContext sensors={categorySensors} collisionDetection={closestCenter} onDragEnd={handleCategoryDragEnd}>
             <SortableContext items={categories.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 items-start">
                 {categories.map((cat) => {
                   const list = notesByCategory.get(cat.id) || [];
                   const collapsed = collapsedCats.has(cat.id);
