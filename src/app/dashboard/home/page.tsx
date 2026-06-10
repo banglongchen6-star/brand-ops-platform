@@ -334,6 +334,11 @@ export default function HomePage() {
   const [linkedTaskMap, setLinkedTaskMap] = useState<Record<string, string>>({});
   const router = useRouter();
 
+  const categorySensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
   useEffect(() => { loadAll(); }, []);
 
   async function loadAll() {
@@ -445,6 +450,23 @@ export default function HomePage() {
     if (newlyCreatedId === id) setNewlyCreatedId(null);
   }
 
+  // 板块拖拽排序
+  async function handleCategoryDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = categories.findIndex((c) => c.id === active.id);
+    const newIndex = categories.findIndex((c) => c.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    const newOrder = arrayMove(categories, oldIndex, newIndex).map((c, i) => ({ ...c, sort_order: i * 10 }));
+    setCategories(newOrder);
+    newOrder.forEach((c) => {
+      fetch(`/api/note-categories/${c.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sort_order: c.sort_order }),
+      });
+    });
+  }
+
   // 拖拽排序：更新本地状态 + 异步保存 sort_order
   async function handleReorder(categoryId: string, newList: Note[]) {
     // 立即给每条笔记赋新的 sort_order，让 useMemo 排序用新值而不是旧的 null
@@ -538,33 +560,41 @@ export default function HomePage() {
         </div>
       ) : (
         <>
-          <div className="columns-1 xl:columns-2 gap-4">
-            {categories.map((cat) => {
-              const list = notesByCategory.get(cat.id) || [];
-              const collapsed = collapsedCats.has(cat.id);
-              return (
-                <div key={cat.id} className="break-inside-avoid mb-4">
-                  <CategorySection
-                    category={cat} notes={list}
-                    collapsed={collapsed}
-                    onToggleCollapse={() => toggleCollapse(cat.id)}
-                    onAddNote={() => newNote(cat.id)}
-                    onCategorySaved={loadCategories}
-                    onReorder={(newList) => handleReorder(cat.id, newList)}
-                    editingNoteId={editingId}
-                    onStartEdit={(id) => setEditingId(id)}
-                    onCancelEdit={cancelEdit}
-                    onSaveNote={saveNote}
-                    onDeleteNote={deleteNote}
-                    onGenerateTask={handleGenerateTask}
-                    linkedTaskMap={linkedTaskMap}
-                  />
-                </div>
-              );
-            })}
+          <DndContext sensors={categorySensors} collisionDetection={closestCenter} onDragEnd={handleCategoryDragEnd}>
+            <SortableContext items={categories.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                {categories.map((cat) => {
+                  const list = notesByCategory.get(cat.id) || [];
+                  const collapsed = collapsedCats.has(cat.id);
+                  return (
+                    <SortableCategoryItem key={cat.id} id={cat.id}>
+                      {(dragHandleProps) => (
+                        <CategorySection
+                          category={cat} notes={list}
+                          collapsed={collapsed}
+                          onToggleCollapse={() => toggleCollapse(cat.id)}
+                          onAddNote={() => newNote(cat.id)}
+                          onCategorySaved={loadCategories}
+                          onReorder={(newList) => handleReorder(cat.id, newList)}
+                          editingNoteId={editingId}
+                          onStartEdit={(id) => setEditingId(id)}
+                          onCancelEdit={cancelEdit}
+                          onSaveNote={saveNote}
+                          onDeleteNote={deleteNote}
+                          onGenerateTask={handleGenerateTask}
+                          linkedTaskMap={linkedTaskMap}
+                          dragHandleProps={dragHandleProps}
+                        />
+                      )}
+                    </SortableCategoryItem>
+                  );
+                })}
+              </div>
+            </SortableContext>
+          </DndContext>
             {/* 未分类区 */}
             {uncategorized.length > 0 && (
-              <div className="break-inside-avoid mb-4">
+              <div className="mt-4">
                 <CategorySection
                   category={{ id: "__uncategorized__", label: "未分类", icon: "📂", sort_order: 9999 }}
                   notes={uncategorized}
@@ -584,7 +614,6 @@ export default function HomePage() {
                 />
               </div>
             )}
-          </div>
 
           {/* 添加新板块 */}
           <button onClick={() => setShowAddCategory(true)}
@@ -607,9 +636,18 @@ export default function HomePage() {
 }
 
 // ============ 板块区 ============
+function SortableCategoryItem({ id, children }: { id: string; children: (dragHandleProps: React.HTMLAttributes<HTMLElement>) => React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }}>
+      {children({ ...attributes, ...listeners })}
+    </div>
+  );
+}
+
 function CategorySection({
   category, notes, collapsed, onToggleCollapse, onAddNote, onCategorySaved, hideAddNote, hideEditCategory,
-  onReorder, editingNoteId, onStartEdit, onCancelEdit, onSaveNote, onDeleteNote, onGenerateTask, linkedTaskMap,
+  onReorder, editingNoteId, onStartEdit, onCancelEdit, onSaveNote, onDeleteNote, onGenerateTask, linkedTaskMap, dragHandleProps,
 }: {
   category: Category; notes: Note[];
   collapsed: boolean; onToggleCollapse: () => void;
@@ -623,6 +661,7 @@ function CategorySection({
   onDeleteNote: (id: string) => Promise<void>;
   onGenerateTask: (id: string) => void;
   linkedTaskMap: Record<string, string>;
+  dragHandleProps?: React.HTMLAttributes<HTMLElement>;
 }) {
   const [isEditingLabel, setIsEditingLabel] = useState(false);
   const [editLabel, setEditLabel] = useState(category.label);
@@ -665,6 +704,11 @@ function CategorySection({
     <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
       {/* 板块头 */}
       <div className="group px-4 py-2.5 border-b border-gray-100 flex items-center gap-2 bg-gray-50/40">
+        {dragHandleProps && (
+          <span {...dragHandleProps} className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 shrink-0 touch-none">
+            <GripVertical size={14} />
+          </span>
+        )}
         <button onClick={onToggleCollapse} className="p-0.5 text-gray-400 hover:text-gray-700">
           {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
         </button>
