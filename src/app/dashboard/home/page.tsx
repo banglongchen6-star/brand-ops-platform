@@ -562,7 +562,7 @@ export default function HomePage() {
         <>
           <DndContext sensors={categorySensors} collisionDetection={closestCenter} onDragEnd={handleCategoryDragEnd}>
             <SortableContext items={categories.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-2 items-start">
+              <div className="flex flex-col gap-2">
                 {categories.map((cat) => {
                   const list = notesByCategory.get(cat.id) || [];
                   const collapsed = collapsedCats.has(cat.id);
@@ -571,6 +571,7 @@ export default function HomePage() {
                       {(dragHandleProps) => (
                         <CategorySection
                           category={cat} notes={list}
+                          index={categories.indexOf(cat) + 1}
                           collapsed={collapsed}
                           onToggleCollapse={() => toggleCollapse(cat.id)}
                           onAddNote={() => newNote(cat.id)}
@@ -647,7 +648,7 @@ function SortableCategoryItem({ id, children }: { id: string; children: (dragHan
 
 function CategorySection({
   category, notes, collapsed, onToggleCollapse, onAddNote, onCategorySaved, hideAddNote, hideEditCategory,
-  onReorder, editingNoteId, onStartEdit, onCancelEdit, onSaveNote, onDeleteNote, onGenerateTask, linkedTaskMap, dragHandleProps,
+  onReorder, editingNoteId, onStartEdit, onCancelEdit, onSaveNote, onDeleteNote, onGenerateTask, linkedTaskMap, dragHandleProps, index,
 }: {
   category: Category; notes: Note[];
   collapsed: boolean; onToggleCollapse: () => void;
@@ -662,6 +663,7 @@ function CategorySection({
   onGenerateTask: (id: string) => void;
   linkedTaskMap: Record<string, string>;
   dragHandleProps?: React.HTMLAttributes<HTMLElement>;
+  index?: number;
 }) {
   const [isEditingLabel, setIsEditingLabel] = useState(false);
   const [editLabel, setEditLabel] = useState(category.label);
@@ -705,8 +707,9 @@ function CategorySection({
       {/* 板块头 */}
       <div className="group px-4 py-2.5 border-b border-gray-100 flex items-center gap-2 bg-gray-50/40">
         {dragHandleProps && (
-          <span {...dragHandleProps} className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 shrink-0 touch-none">
+          <span {...dragHandleProps} className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 shrink-0 touch-none flex items-center gap-1">
             <GripVertical size={14} />
+            {index !== undefined && <span className="text-[10px] font-mono text-gray-300">{index}</span>}
           </span>
         )}
         <button onClick={onToggleCollapse} className="p-0.5 text-gray-400 hover:text-gray-700">
