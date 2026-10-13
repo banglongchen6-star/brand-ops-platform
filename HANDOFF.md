@@ -1,10 +1,54 @@
 # 品牌经营协同平台 · 交接文档
 
-> 最后更新：2026-04-29
+> 最后更新：2026-10-13（顶部「0. 当前状态」为最新；第 1 节起是 2026-04-29 的原始交接，部分已过时，冲突时以第 0 节为准）
 > 项目：音乐密码（adult piano education）10 人团队内部管理后台
-> 路径：`/Users/sheji/管理后台系统/brand-ops-platform`
-> 部署：Vercel（auto-deploy on push to main）→ https://brand-ops-platform.vercel.app
+> 路径：`/Users/Admin/管理后台/brand-ops-platform`
 > 仓库：https://github.com/banglongchen6-star/brand-ops-platform
+
+**维护规则：每次新增/修改功能，都要同步更新本文件第 0 节（含更新日志），和代码一起提交。**
+
+---
+
+## 0. 当前状态（2026-10-13）
+
+### 0.1 部署（已从 Vercel 迁走）
+- 推 `main` → GitHub Actions（`.github/workflows/` 里的 Deploy to Alibaba Cloud）SSH 到香港阿里云 `8.218.189.74`
+- 服务器上：`/root/brand-ops-platform` 里 `git pull` → `npm run build` → root 的 pm2 进程 `brand-ops`（`npm start`，端口 3000）
+- 同一台服务器还跑着 marketing-platform(3002)、baoxiao-expense(3003) 等其它系统，**不要动别的 pm2 进程**
+- GitHub Secrets：`SSH_HOST` / `SSH_USER` / `SSH_PRIVATE_KEY`；笔记推送 cron 用 `CRON_SECRET`
+- 笔记定时推送：GitHub Actions 每 10 分钟调 `/api/cron/notes-push`（PushPlus 微信推送，每条笔记可单独设时间、推送摘要）
+- 下文第 6、7.6、7.7、8 节里关于 Vercel 的描述已过时
+
+### 0.2 模块现状
+| 菜单 | 路由 | 状态 |
+|---|---|---|
+| 工作笔记 | /dashboard/home | ✅ 板块拖拽排序、笔记转任务（本地预填，非 AI）、PushPlus 定时推送、localStorage 缓存首屏 |
+| 任务中心 | /dashboard/tasks | ✅ 管理员可删任务（单条/批量） |
+| 运营中心 | /dashboard/data | 嵌入 Coze brand-roi 看板（iframe） |
+| 客服中心 | /dashboard/service | 嵌入 Coze 售后订单系统（iframe） |
+| 内容运营 | /dashboard/content | ✅ 热榜 + AI |
+| 竞品情报 | /dashboard/competitor | ✅ 含 Qwen-VL 截图识别（阿里云 OCR 替换方案未做，见 4.1） |
+| 达人营销 | /dashboard/kol | iframe 嵌入离火品宣工作台 `http://8.218.189.74:3002`（独立系统 marketing-platform）；本仓库里的排期/预算表代码与 `KOL_HANDOFF.md` 是早期版本 |
+| 渠道分销 | /dashboard/channel | ✅ 线下门店管理（仿 coze.site stores） |
+| AI 复盘中心 | /dashboard/review | 占位页（侧边栏入口已删）。**计划在此做「直播复盘」模块**，规划见 `/Users/Admin/直播复盘/HANDOFF.md` |
+| 系统设置 | /dashboard/settings | ✅ AI 模型配置、用户管理 |
+
+**已删除（2026-05-14，不要恢复）：** 电商销售（旺店通）、文字内容（公众号 AI 写作，即下文 3.3 / 4.2 / wx_* 相关）
+
+### 0.3 关键规则（补充第 7 节）
+- Next.js 16，写代码前先看 `node_modules/next/dist/docs/`（AGENTS.md）
+- AI 按钮必须带模型名；SQL 迁移放 `supabase/` 新文件、幂等（IF NOT EXISTS）
+- 界面必须同时照顾电脑端和手机端
+- 用户无编程基础：改动前先说明方案，等用户确认再动手
+
+### 0.4 更新日志
+- 2026-10-13：重写第 0 节，修正路径/部署方式/模块状态
+- 2026-06-10：首页板块拖拽排序、单列紧凑布局
+- 2026-06-02：达人营销改为 iframe 嵌入品宣运营工作台
+- 2026-05-28~30：部署从 Vercel 改为 GitHub Actions → 阿里云（root pm2）；删侧边栏 AI 复盘中心入口
+- 2026-05-22~23：运营中心嵌 Coze brand-roi；渠道分销改线下门店管理
+- 2026-05-13~14：笔记 PushPlus 推送；删除电商销售、文字内容模块；4 个模块改占位
+- 2026-05-07~09：笔记转任务、达人排期 M1-M3、任务批量删除
 
 ---
 
